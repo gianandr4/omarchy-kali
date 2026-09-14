@@ -31,6 +31,9 @@ If you don't, `container/setup.sh` builds one (see below). Then:
 ```bash
 ~/.config/omarchy/plugins/fygas.kali/bin/kali-menu link   # put the commands on PATH
 kali-menu sync                                            # build the rows
+
+# optional: keep the menu in step after `omarchy update`
+omarchy hook install post-update ~/.config/omarchy/plugins/fygas.kali/hooks/kali-menu-sync.hook
 ```
 
 The menu hot-reloads; no restart. Point it at a differently-named container with
