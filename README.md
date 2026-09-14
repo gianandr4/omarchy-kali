@@ -15,7 +15,7 @@ about a third of them point at nothing.
 ## Install
 
 ```bash
-omarchy plugin add https://github.com/<you>/omarchy-kali
+omarchy plugin add https://github.com/gianandr4/omarchy-kali
 omarchy plugin enable fygas.kali
 ```
 
