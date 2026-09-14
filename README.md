@@ -101,8 +101,8 @@ image also installs `kali-linux-headless` explicitly and apt pulls recommends.
 |---|---|---|---|
 | `kali-linux-core` | ~340 | ~2 — too small to be useful | |
 | `kali-linux-headless` | ~1,700 | ~170 est. | |
-| `kali-linux-default` | 2,431 | **298** *(built)* | 12.8 GB |
-| `kali-linux-large` | 2,889 | **448** *(built)* | 21.9 GB |
+| `kali-linux-default` | 2,431 | **292** *(built)* | 12.8 GB |
+| `kali-linux-large` | 2,889 | **436** *(built)* | 21.9 GB |
 
 A smaller metapackage gives a smaller menu, not a broken one. `large` roughly
 doubles the image for about 50% more tools.

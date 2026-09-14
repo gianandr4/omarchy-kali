@@ -8,8 +8,8 @@
 #
 #   kali-linux-core        ~340 pkgs     ~2 entries    too small to be useful
 #   kali-linux-headless  ~1,700 pkgs   ~170 entries   (estimated)
-#   kali-linux-default    2,431 pkgs    298 entries   <- default; 12.8 GB image
-#   kali-linux-large      2,889 pkgs    448 entries   21.9 GB image, much longer build
+#   kali-linux-default    2,431 pkgs    292 entries   <- default; 12.8 GB image
+#   kali-linux-large      2,889 pkgs    436 entries   21.9 GB image, much longer build
 #
 # The menu only ever lists tools that are actually installed, so a smaller
 # metapackage gives a smaller menu rather than a broken one.

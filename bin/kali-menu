@@ -888,8 +888,8 @@ def cmd_doctor(args) -> None:
             _check(f"{len(rows) - len(ours)} hand-written rows preserved", True)
             _check("tool count reasonable", not (0 < len(tools) < 40),
                    f"only {len(tools)} tools" if 0 < len(tools) < 40 else "",
-                   hint="a bigger metapackage gives more: kali-linux-default ~298, "
-                        "kali-linux-large ~448" if 0 < len(tools) < 40 else "")
+                   hint="a bigger metapackage gives more: kali-linux-default ~292, "
+                        "kali-linux-large ~436" if 0 < len(tools) < 40 else "")
         except json.JSONDecodeError as exc:
             failures += not _check("menu file parses", False, str(exc))
         has_begin = any(l.strip().startswith(BEGIN_MARK) for l in text.splitlines())
