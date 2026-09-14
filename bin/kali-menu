@@ -629,22 +629,43 @@ def cmd_uninstall(args) -> None:
     print("\nnow safe to run: omarchy plugin remove " + PLUGIN_ID)
 
 
-def _check(label, ok, detail=""):
-    mark = "ok  " if ok else "FAIL"
-    print(f"  [{mark}] {label}" + (f" -- {detail}" if detail else ""))
+# Collected so doctor can render either for a human or as JSON. An agent
+# troubleshooting this should not have to scrape console text.
+_RESULTS: list[dict] = []
+
+
+def _check(label, ok, detail="", hint=""):
+    _RESULTS.append({"check": label, "ok": bool(ok), "detail": detail, "hint": hint})
     return ok
+
+
+def cmd_skill(args) -> None:
+    """Install the troubleshooting skill for Claude Code.
+
+    Copied rather than symlinked: the skills directory is scanned, and a plugin
+    directory must contain no symlinks anyway.
+    """
+    src = PLUGIN_DIR / "skills" / "omarchy-kali"
+    dest = Path.home() / ".claude" / "skills" / "omarchy-kali"
+    if not src.is_dir():
+        sys.exit(f"missing {src}")
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    if dest.exists():
+        shutil.rmtree(dest)
+    shutil.copytree(src, dest)
+    print(f"installed {dest}")
+    print("agents will pick it up when troubleshooting the Kali menu.")
 
 
 def cmd_doctor(args) -> None:
     """Say what is wrong, in the order it would break."""
-    print(f"plugin:    {PLUGIN_DIR}")
-    print(f"container: {CONTAINER}")
-    print(f"menu file: {MENU_FILE}\n")
+    _RESULTS.clear()
     failures = 0
 
     for tool in ("distrobox", "podman"):
         # No plugin dependency mechanism exists, so check at runtime.
-        failures += not _check(f"{tool} installed", shutil.which(tool) is not None)
+        failures += not _check(f"{tool} installed", shutil.which(tool) is not None,
+                               hint=f"omarchy pkg add {tool}")
 
     for name in LINKED:
         f = BIN_DIR / name
@@ -654,7 +675,8 @@ def cmd_doctor(args) -> None:
         )
 
     exists = subprocess.run(["podman", "container", "exists", CONTAINER]).returncode == 0
-    failures += not _check(f"container '{CONTAINER}' exists", exists)
+    failures += not _check(f"container '{CONTAINER}' exists", exists,
+                           hint=f"{PLUGIN_DIR}/container/setup.sh, or set KALI_CONTAINER")
 
     if exists:
         probe = subprocess.run(
@@ -665,8 +687,10 @@ def cmd_doctor(args) -> None:
             capture_output=True, text=True)
         out = probe.stdout
         failures += not _check("/run/host reachable from container", "HOST_OK" in out)
-        failures += not _check("kali-menu installed in container", "MENU_OK" in out,
-                               "" if "MENU_OK" in out else "apt install kali-menu")
+        failures += not _check(
+            "kali-menu installed in container", "MENU_OK" in out,
+            "" if "MENU_OK" in out else "the package that provides every menu row is absent",
+            hint=f"distrobox enter {CONTAINER} -- sudo apt install kali-menu")
         launchers = next((l for l in out.splitlines() if l.strip().isdigit()), "0")
         _check(f"{launchers} launchers available", True)
 
@@ -681,9 +705,10 @@ def cmd_doctor(args) -> None:
                      if k.startswith(ROOT_ID + ".") and isinstance(v, dict) and v.get("action")]
             failures += not _check(f"{len(ours)} kali rows present", bool(ours))
             _check(f"{len(rows) - len(ours)} hand-written rows preserved", True)
-            if 0 < len(tools) < 40:
-                print(f"\n  note: only {len(tools)} tools. A bigger metapackage gives more --")
-                print("        kali-linux-default is ~201 launchers, kali-linux-large ~344.")
+            _check("tool count reasonable", not (0 < len(tools) < 40),
+                   f"only {len(tools)} tools" if 0 < len(tools) < 40 else "",
+                   hint="a bigger metapackage gives more: kali-linux-default ~298, "
+                        "kali-linux-large ~448" if 0 < len(tools) < 40 else "")
         except json.JSONDecodeError as exc:
             failures += not _check("menu file parses", False, str(exc))
         has_begin = any(l.strip().startswith(BEGIN_MARK) for l in text.splitlines())
@@ -693,7 +718,24 @@ def cmd_doctor(args) -> None:
     else:
         failures += not _check("menu file exists", False, str(MENU_FILE))
 
-    print("\n" + ("all checks passed" if not failures else f"{failures} problem(s) above"))
+    context = {
+        "plugin_dir": str(PLUGIN_DIR),
+        "plugin_id": PLUGIN_ID,
+        "container": CONTAINER,
+        "menu_file": str(MENU_FILE),
+    }
+    if args.json:
+        print(json.dumps({**context, "ok": not failures, "checks": _RESULTS}, indent=2))
+    else:
+        for k, v in context.items():
+            print(f"{k + ':':12}{v}")
+        print()
+        for r in _RESULTS:
+            print(f"  [{'ok  ' if r['ok'] else 'FAIL'}] {r['check']}"
+                  + (f" -- {r['detail']}" if r["detail"] else ""))
+            if not r["ok"] and r["hint"]:
+                print(f"         try: {r['hint']}")
+        print("\n" + ("all checks passed" if not failures else f"{failures} problem(s) above"))
     sys.exit(1 if failures else 0)
 
 
@@ -708,15 +750,20 @@ def main() -> None:
                         help="also emit rows for tools not installed in the container")
     p_sync.set_defaults(func=cmd_sync)
 
+    p_doc = sub.add_parser("doctor", help="check the install and report what is wrong")
+    p_doc.add_argument("--json", action="store_true",
+                       help="machine-readable output, for scripts and agents")
+    p_doc.set_defaults(func=cmd_doctor, dry_run=False, include_missing=False)
+
     for name, fn, helptext in (
-        ("doctor", cmd_doctor, "check the install and report what is wrong"),
         ("remove", cmd_remove, "remove the generated rows"),
         ("link", cmd_link, "symlink the commands into ~/.local/bin"),
         ("unlink", cmd_unlink, "remove those symlinks"),
         ("uninstall", cmd_uninstall, "remove rows and symlinks"),
+        ("skill", cmd_skill, "install the troubleshooting skill into ~/.claude/skills"),
     ):
         sp = sub.add_parser(name, help=helptext)
-        sp.set_defaults(func=fn, dry_run=False, include_missing=False)
+        sp.set_defaults(func=fn, dry_run=False, include_missing=False, json=False)
 
     args = parser.parse_args()
     if not args.command:

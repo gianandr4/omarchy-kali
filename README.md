@@ -122,6 +122,18 @@ no-op, rows are tab-delimited rather than JSON, and each provider's action comes
 from a QML function. Writing the JSONC is the only path to menu rows, so the rows
 are generated rather than served.
 
+## Troubleshooting
+
+```bash
+kali-menu doctor            # what is wrong, with a suggested fix per failure
+kali-menu doctor --json     # same, machine-readable
+kali-menu skill install     # install the troubleshooting skill for Claude Code
+```
+
+`skills/omarchy-kali/SKILL.md` documents every failure mode above plus the ones
+that are hard to diagnose cold — it is worth reading even if you never use an
+agent.
+
 ## Verifying
 
 ```bash
