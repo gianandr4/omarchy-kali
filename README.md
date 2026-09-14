@@ -59,16 +59,20 @@ container/setup.sh                                 # kali-linux-default
 METAPACKAGE=kali-linux-large container/setup.sh    # everything short of the kitchen sink
 ```
 
-How much menu each metapackage gives you, measured against `kali-menu` 2026.3.2:
+How much menu each metapackage gives you. The two marked *built* are measured
+from real builds of this Containerfile; the others are estimated from apt's
+dependency closure and will come out somewhat higher in practice, because the
+image also installs `kali-linux-headless` explicitly and apt pulls recommends.
 
-| Metapackage | Packages | Launchers |
-|---|---|---|
-| `kali-linux-core` | 339 | 2 — too small to be useful |
-| `kali-linux-headless` | 1,686 | 173 |
-| `kali-linux-default` | 2,940 | 201 — the default |
-| `kali-linux-large` | 3,450 | 344 — hours to build, ~22 GB |
+| Metapackage | Packages | Menu entries | Image |
+|---|---|---|---|
+| `kali-linux-core` | ~340 | ~2 — too small to be useful | |
+| `kali-linux-headless` | ~1,700 | ~170 est. | |
+| `kali-linux-default` | 2,431 | **298** *(built)* | 12.8 GB |
+| `kali-linux-large` | 2,889 | **448** *(built)* | 21.9 GB |
 
-A smaller metapackage gives a smaller menu, not a broken one.
+A smaller metapackage gives a smaller menu, not a broken one. `large` roughly
+doubles the image for about 50% more tools.
 
 ## Things that cost real time to find
 

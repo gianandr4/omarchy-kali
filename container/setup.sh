@@ -6,19 +6,20 @@
 # Metapackage ladder, and how much menu you get from each (measured against
 # kali-menu 2026.3.2, which ships 539 launchers for Kali's whole catalogue):
 #
-#   kali-linux-core        339 pkgs      2 launchers   too small to be useful
-#   kali-linux-headless  1,686 pkgs    173 launchers
-#   kali-linux-default   2,940 pkgs    201 launchers   <- default, Kali's own desktop set
-#   kali-linux-large     3,450 pkgs    344 launchers   much longer, much larger build
+#   kali-linux-core        ~340 pkgs     ~2 entries    too small to be useful
+#   kali-linux-headless  ~1,700 pkgs   ~170 entries   (estimated)
+#   kali-linux-default    2,431 pkgs    298 entries   <- default; 12.8 GB image
+#   kali-linux-large      2,889 pkgs    448 entries   21.9 GB image, much longer build
 #
 # The menu only ever lists tools that are actually installed, so a smaller
 # metapackage gives a smaller menu rather than a broken one.
 set -euo pipefail
 
-NAME=kali
-IMAGE=kali-lab:latest
+# Overridable so a throwaway build can be tested without touching a working one.
+NAME="${KALI_NAME:-kali}"
+IMAGE="${KALI_IMAGE:-kali-lab:latest}"
 META="${METAPACKAGE:-kali-linux-default}"
-KHOME="$HOME/kali/home"
+KHOME="${KALI_HOME:-$HOME/kali/home}"
 DIR="$(cd "$(dirname "$0")" && pwd)"
 
 [ "$(id -u)" -eq 0 ] && { echo "do NOT run this with sudo -- this is rootless"; exit 1; }
@@ -26,7 +27,7 @@ for c in distrobox podman; do
   command -v $c >/dev/null || { echo "missing $c -> sudo pacman -S --needed distrobox podman"; exit 1; }
 done
 
-mkdir -p "$KHOME" "$HOME/kali/work"
+mkdir -p "$KHOME"
 
 if [ "${KALI_YES:-0}" != 1 ]; then
   echo "Metapackage: $META -- long, hot build on this CPU. Ctrl-C to abort."
@@ -48,7 +49,8 @@ best = max(m, key=lambda d: d.get("height", 0), default=None)
 print(2 if best and (best.get("scale", 1) >= 1.5 or best.get("height", 0) >= 1600) else 1)' 2>/dev/null) || UI_SCALE=1
 fi
 echo "==> [1/3] building $IMAGE (metapackage: $META, uiScale: $UI_SCALE) -- this is the long part"
-podman build -t "$IMAGE" -f "$DIR/Containerfile" --build-arg "KALI_UI_SCALE=$UI_SCALE" "$DIR"
+podman build -t "$IMAGE" -f "$DIR/Containerfile" \
+  --build-arg "KALI_UI_SCALE=$UI_SCALE" --build-arg "KALI_METAPACKAGE=$META" "$DIR"
 
 echo "==> [2/3] creating rootless distrobox '$NAME' (isolated home: $KHOME)"
 if distrobox list 2>/dev/null | grep -qw "$NAME"; then
@@ -64,7 +66,6 @@ distrobox create --yes \
   --image "$IMAGE" \
   --home "$KHOME" \
   --unshare-netns \
-  --volume "$HOME/kali/work:/work:rw" \
   --additional-flags "--cap-add=NET_ADMIN --cap-add=NET_RAW --device /dev/net/tun"
 
 echo "==> [3/3] initialising"

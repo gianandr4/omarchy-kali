@@ -24,8 +24,13 @@ RUN apt-get update && apt-get install -y kali-linux-core kali-linux-headless && 
 # handed to apt as the metapackage: kali-linux-large uses alternative deps
 # (e.g. ettercap-graphical | ettercap-text-only) that a flattened package
 # list cannot express -- enumerating them produces unsatisfiable conflicts.
-# first slice (28 pkgs)
-RUN apt-get update && apt-get install -y --no-install-recommends \
+# The metapackage decides how big the install is. The menu lists only what is
+# installed, so a smaller one gives a smaller menu rather than a broken one.
+ARG KALI_METAPACKAGE=kali-linux-default
+
+# first slice (28 pkgs) -- large-only, so a smaller metapackage stays clean
+RUN [ "$KALI_METAPACKAGE" = kali-linux-large ] || [ "$KALI_METAPACKAGE" = kali-linux-everything ] || exit 0; \
+    apt-get update && apt-get install -y --no-install-recommends \
       0trace afflib-tools amap apache-users apktool armitage arpwatch \
       asleap bed beef-xss bluelog blueranger bluesnarfer braa btscanner \
       bytecode-viewer cabextract caldera cgpt chirp chkrootkit \
@@ -34,7 +39,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # Let apt resolve the full set, alternatives and all.
-RUN apt-get update && apt-get install -y kali-linux-large && \
+RUN apt-get update && apt-get install -y "$KALI_METAPACKAGE" && \
     rm -rf /var/lib/apt/lists/*
 
 RUN apt-get update && apt-get install -y \
