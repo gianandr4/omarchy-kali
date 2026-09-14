@@ -80,6 +80,27 @@ answer. The generator rewrites Kali's `pkexec` launchers to run as the user.
 `fern-wifi-cracker` is the sole exception — it writes under `/usr/share` and
 genuinely needs root; it is Qt, so it tolerates it.
 
+### A `*-start` entry says "System has not been booted with systemd"
+
+distrobox runs systemd as PID 1 but does not boot it: `/run/systemd/system` is
+absent and `systemctl is-system-running` returns `offline`. Anything driving a
+service fails. Confirm with:
+
+```bash
+distrobox enter kali -- bash -lc 'systemctl is-system-running; ls -d /run/systemd/system'
+```
+
+The generator drops these rows, detecting them by their call to Kali's
+`kali-service-start`/`-stop` helper or to `systemctl`. A presence check cannot
+catch them: the tools are installed and the scripts are executable.
+
+They are kept when systemd *is* booted (`distrobox create --init`), which is
+checked against the container rather than assumed. If someone reports these
+entries missing, ask whether their container uses `--init`.
+
+Do not confuse `iodine-client-start` with this class — it sets up a tunnel
+directly and is correctly kept.
+
 ### PermissionError from a tool in the container
 
 distrobox's first-run init creates `~/.config`, `~/.local`, `~/.java` as root
@@ -141,6 +162,9 @@ the host's menu file. `distrobox-host-exec` cannot bridge this — it needs
 - **`omarchy plugin remove` runs no uninstall hook**; it is an `rm -rf`. The root
   row is guarded on the plugin directory existing so rows vanish on removal.
   `kali-menu uninstall` cleans up properly and must run first.
+- **Presence is not function.** A launcher can be installed and executable and
+  still be impossible — the systemd service entries are the example. When adding
+  a filter, ask what makes the row *work*, not what makes it *exist*.
 - **Helper scripts must be resolved to the tool they wrap.** They stay executable
   when that tool is absent — `havoc.sh` is the live example. Beware quoted pipes
   (`hydra.sh`) and command substitution (`wireshark.sh`) when parsing them.

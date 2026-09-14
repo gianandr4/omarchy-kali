@@ -108,6 +108,31 @@ hook, so anything outside the plugin directory is yours to clean up. If you
 forget, nothing breaks: the generated rows are guarded on the plugin directory
 existing, so they disappear from the menu the moment it does.
 
+## Service entries need a booted systemd
+
+Kali ships launchers that start services — `beef-xss-start`, `dradis-start`,
+`faraday-start`, `gophish-start`, `starkiller-start` and their `-stop` partners.
+They cannot work in a normal distrobox.
+
+distrobox runs systemd as the container's PID 1 but never **boots** it, so
+`/run/systemd/system` is absent and `systemctl is-system-running` reports
+`offline`. Every one of those entries dies with:
+
+```
+System has not been booted with systemd as init system (PID 1). Can't operate.
+```
+
+The tools are installed and the scripts are executable, so a presence check
+cannot see it. They are detected instead by what they call — Kali's own
+`kali-service-start`/`-stop` helper, or `systemctl` directly — and dropped.
+
+**If your container does boot systemd** (`distrobox create --init`), they are
+kept, because there they work. The check is made against the container, not
+assumed.
+
+`iodine-client-start` looks like one of these and is not — it configures a
+tunnel directly, and stays in the menu.
+
 ## Things that cost real time to find
 
 Worth reading if you are doing Kali-in-distrobox at all, with or without this.

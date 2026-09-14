@@ -193,6 +193,42 @@ def helper_script_commands(path):
     return found
 
 
+def systemd_booted():
+    """Whether systemd is running as a service manager, not merely PID 1.
+
+    distrobox starts systemd as the container entrypoint but does not boot it,
+    so `systemctl is-system-running` reports "offline" and /run/systemd/system
+    is absent. Anything that manages a service then fails with "System has not
+    been booted with systemd as init system". A container made with
+    `distrobox create --init` does boot it, and there these entries work.
+    """
+    return os.path.isdir("/run/systemd/system")
+
+
+def needs_service_manager(command):
+    """Does this launcher drive a systemd service?
+
+    Kali wrote these for a real install where systemd runs. They are not broken
+    tools and they are installed -- they simply cannot work in a container whose
+    systemd was never booted, and the presence check cannot see that.
+
+    Detected via Kali's own kali-service-start/stop helper, which is what most
+    of them call, or a direct systemctl invocation (faraday-start).
+    """
+    if not command or "/" not in command:
+        command = shutil.which(command or "") or ""
+    if not command or not os.path.isfile(command):
+        return False
+    try:
+        with open(command, "rb") as fh:
+            head = fh.read(65536)
+    except OSError:
+        return False
+    if head[:2] != b"#!":
+        return False
+    return bool(re.search(rb"kali-service-(start|stop)|(^|[;&| \t])systemctl( |$)", head, re.M))
+
+
 def is_installed(command):
     """kali-menu ships launchers for Kali's whole catalogue, not for what is
     actually installed here, so roughly a third of them point at nothing."""
@@ -233,7 +269,9 @@ def entries_by_category():
         if not label or not raw_exec:
             continue
         command = base_command(raw_exec)
+        resolved = command if "/" in command else (shutil.which(command) or "")
         entry = {
+            "needs_systemd": needs_service_manager(resolved),
             "label": label,
             "comment": fields.get("Comment", ""),
             "package": fields.get("X-Kali-Package", ""),
@@ -274,7 +312,8 @@ def main(out_path):
         sys.exit("kali-menu is not installed in this container: %s missing" % MENU)
     root = ET.parse(MENU).getroot()
     tree = [walk(child) for child in root.findall("Menu")]
-    payload = {"tree": tree, "entries": entries_by_category()}
+    payload = {"tree": tree, "entries": entries_by_category(),
+               "systemd_booted": systemd_booted()}
     with open(out_path, "w", encoding="utf-8") as fh:
         json.dump(payload, fh)
 
@@ -404,17 +443,24 @@ def jsonc_row(row_id: str, fields: dict) -> str:
     return f'  {json.dumps(row_id)}: {{{",".join(parts)}}}'
 
 
-def build_rows(payload: dict, include_missing: bool = False) -> tuple[list[str], int]:
+def build_rows(payload: dict, include_missing: bool = False) -> tuple[list[str], dict]:
     entries = payload["entries"]
+    # A container made with `distrobox create --init` boots systemd, and there
+    # the service entries work; only drop them where they cannot.
+    booted = payload.get("systemd_booted", True)
     skipped: set[str] = set()
+    skipped_svc: set[str] = set()
 
     def usable(entry: dict) -> bool:
         # Entries from an older extractor have no "installed" key; keep those
         # rather than silently emptying the menu.
-        if include_missing or entry.get("installed", True):
-            return True
-        skipped.add(entry.get("command") or entry["label"])
-        return False
+        if not (include_missing or entry.get("installed", True)):
+            skipped.add(entry.get("command") or entry["label"])
+            return False
+        if entry.get("needs_systemd") and not booted and not include_missing:
+            skipped_svc.add(entry.get("command") or entry["label"])
+            return False
+        return True
     rows: list[tuple[str, dict]] = []
     seen: set[str] = set()
 
@@ -474,11 +520,18 @@ def build_rows(payload: dict, include_missing: bool = False) -> tuple[list[str],
             fields["action"] = action
             add(tool_id, fields)
 
+    def usable_quiet(entry: dict) -> bool:
+        """usable() without recording a skip -- for structural checks that run
+        over the same entries repeatedly."""
+        if not (include_missing or entry.get("installed", True)):
+            return False
+        return not (entry.get("needs_systemd") and not booted and not include_missing)
+
     def has_content(node: dict) -> bool:
         """Does this branch hold anything worth showing, at any depth?"""
         if node["category"] == "kali-usual-applications":
             return False
-        if any(include_missing or e.get("installed", True) for e in entries.get(node["category"], [])):
+        if any(usable_quiet(e) for e in entries.get(node["category"], [])):
             return True
         return any(has_content(child) for child in node["children"])
 
@@ -488,7 +541,7 @@ def build_rows(payload: dict, include_missing: bool = False) -> tuple[list[str],
         # apps; on Omarchy those belong to the host, not this tree.
         if category == "kali-usual-applications":
             return
-        own = [e for e in entries.get(category, []) if include_missing or e.get("installed", True)]
+        own = [e for e in entries.get(category, []) if usable_quiet(e)]
         if not own and not any(has_content(c) for c in node["children"]):
             return
         name = strip_ordering_prefix(node["name"])
@@ -505,7 +558,8 @@ def build_rows(payload: dict, include_missing: bool = False) -> tuple[list[str],
     for node in payload["tree"]:
         add_menu(ROOT_ID, node)
 
-    return [jsonc_row(row_id, fields) for row_id, fields in rows], len(skipped)
+    return ([jsonc_row(row_id, fields) for row_id, fields in rows],
+            {"missing": len(skipped), "needs_systemd": len(skipped_svc), "booted": booted})
 
 
 def ensure_trailing_comma(head_lines: list[str]) -> list[str]:
@@ -592,13 +646,15 @@ def prune_backups() -> None:
 def cmd_sync(args) -> None:
     payload = run_extractor()
     block, skipped = build_rows(payload, include_missing=args.include_missing)
+    n_missing, n_svc = skipped["missing"], skipped["needs_systemd"]
     block = [l + "," for l in block[:-1]] + block[-1:]
 
     if args.dry_run:
         print(BEGIN)
         print("\n".join(block))
         print(END)
-        print(f"\n# {len(block)} rows, {skipped} tools skipped as not installed", file=sys.stderr)
+        print(f"\n# {len(block)} rows, {n_missing} not installed, "
+              f"{n_svc} need a booted systemd", file=sys.stderr)
         return
 
     backup = MENU_FILE.with_suffix(f".jsonc.bak.kali-menu-{time.strftime('%Y%m%d-%H%M%S')}")
@@ -606,8 +662,11 @@ def cmd_sync(args) -> None:
     prune_backups()
     write_atomic(MENU_FILE, splice(block))
     print(f"wrote {len(block)} rows to {MENU_FILE}")
-    if skipped:
-        print(f"skipped {skipped} tools that are not installed (--include-missing keeps them)")
+    if n_missing:
+        print(f"skipped {n_missing} tools that are not installed (--include-missing keeps them)")
+    if n_svc:
+        print(f"skipped {n_svc} service entries: systemd is not booted in this container "
+              f"(distrobox create --init boots it)")
     print(f"previous version saved as {backup}")
 
 
