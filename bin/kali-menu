@@ -519,47 +519,6 @@ def build_rows(payload: dict, include_missing: bool = False) -> tuple[list[str],
         "action": f"omarchy-launch-tui --app-id=org.omarchy.kali {KALI_RUN}",
     })
 
-    add(f"{ROOT_ID}.settings", {
-        "icon": ICON_CATEGORY,
-        "label": "Settings",
-        "description": "Kali menu settings",
-    })
-    add(f"{ROOT_ID}.settings.sync", {
-        "icon": ICON_TERMINAL,
-        "label": "Refresh menu",
-        "description": "Regenerate the rows from the container",
-        "action": f"omarchy-launch-tui --app-id=org.omarchy.kali {KALI_MENU} sync",
-    })
-    add(f"{ROOT_ID}.settings.doctor", {
-        "icon": ICON_TERMINAL,
-        "label": "Doctor",
-        "description": "Check the install and report what is wrong",
-        "action": f"omarchy-launch-tui --app-id=org.omarchy.kali bash -lc {shlex.quote(str(BIN_DIR / 'kali-menu') + ' doctor; read -n1 -p \'\nEnter to close\'')}",
-    })
-    containers = payload.get("containers") or [CONTAINER]
-    if len(containers) > 1:
-        add(f"{ROOT_ID}.settings.container", {
-            "icon": ICON_CATEGORY,
-            "label": "Container",
-            "description": f"Which distrobox to read tools from (now: {CONTAINER})",
-        })
-        for name in containers:
-            add(f"{ROOT_ID}.settings.container.{slugify(name)}", {
-                "icon": ICON_TERMINAL,
-                "label": name,
-                "description": f"Use the {name} container and rebuild the menu",
-                # Switching re-syncs, which takes a moment and can fail, so it
-                # runs in a terminal where that is visible.
-                "action": f"omarchy-launch-tui --app-id=org.omarchy.kali {KALI_MENU} use {shlex.quote(name)}",
-                # Reads the live choice rather than baking in whatever was
-                # current at generate time, so the tick stays honest even after
-                # a one-off KALI_CONTAINER override.
-                "checked": (
-                    f'[ "${{KALI_CONTAINER:-$(cat {shlex.quote(str(CONTAINER_FILE))} '
-                    f'2>/dev/null || echo kali)}}" = {shlex.quote(name)} ]'
-                ),
-            })
-
     def add_tools(parent_id: str, category: str) -> None:
         for entry in entries.get(category, []):
             if not usable(entry):
@@ -622,6 +581,49 @@ def build_rows(payload: dict, include_missing: bool = False) -> tuple[list[str],
 
     for node in payload["tree"]:
         add_menu(ROOT_ID, node)
+
+    # Emitted last so Settings sits at the bottom of the tree, under the tools
+    # rather than above them.
+    add(f"{ROOT_ID}.settings", {
+        "icon": ICON_CATEGORY,
+        "label": "Settings",
+        "description": "Kali menu settings",
+    })
+    add(f"{ROOT_ID}.settings.sync", {
+        "icon": ICON_TERMINAL,
+        "label": "Refresh menu",
+        "description": "Regenerate the rows from the container",
+        "action": f"omarchy-launch-tui --app-id=org.omarchy.kali {KALI_MENU} sync",
+    })
+    add(f"{ROOT_ID}.settings.doctor", {
+        "icon": ICON_TERMINAL,
+        "label": "Doctor",
+        "description": "Check the install and report what is wrong",
+        "action": f"omarchy-launch-tui --app-id=org.omarchy.kali bash -lc {shlex.quote(str(BIN_DIR / 'kali-menu') + ' doctor; read -n1 -p \'\nEnter to close\'')}",
+    })
+    containers = payload.get("containers") or [CONTAINER]
+    if len(containers) > 1:
+        add(f"{ROOT_ID}.settings.container", {
+            "icon": ICON_CATEGORY,
+            "label": "Container",
+            "description": f"Which distrobox to read tools from (now: {CONTAINER})",
+        })
+        for name in containers:
+            add(f"{ROOT_ID}.settings.container.{slugify(name)}", {
+                "icon": ICON_TERMINAL,
+                "label": name,
+                "description": f"Use the {name} container and rebuild the menu",
+                # Switching re-syncs, which takes a moment and can fail, so it
+                # runs in a terminal where that is visible.
+                "action": f"omarchy-launch-tui --app-id=org.omarchy.kali {KALI_MENU} use {shlex.quote(name)}",
+                # Reads the live choice rather than baking in whatever was
+                # current at generate time, so the tick stays honest even after
+                # a one-off KALI_CONTAINER override.
+                "checked": (
+                    f'[ "${{KALI_CONTAINER:-$(cat {shlex.quote(str(CONTAINER_FILE))} '
+                    f'2>/dev/null || echo kali)}}" = {shlex.quote(name)} ]'
+                ),
+            })
 
     return ([jsonc_row(row_id, fields) for row_id, fields in rows],
             {"missing": len(skipped), "needs_systemd": len(skipped_svc), "booted": booted})

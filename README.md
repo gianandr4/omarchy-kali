@@ -1,23 +1,88 @@
 # Kali Tools for the Omarchy menu
 
-Puts the tools from a Kali [distrobox](https://distrobox.it/) container into the
-Omarchy menu, organised the way Kali organises them.
+Your whole Kali toolkit, one `Super`-press away, laid out exactly the way Kali
+lays it out — all from a [distrobox](https://distrobox.it/) container, without a
+single security tool touching your host.
 
-Kali's `kali-menu` package already did the hard part: 539 `.desktop` launchers
-with a kill-chain category tree, pointing at a guided wizard where one exists and
-`--help` where one doesn't. This reads that out of the container and writes it as
-menu rows.
+[Omarchy](https://omarchy.org/) is a genuinely lovely thing to build on. The menu
+is declarative, it hot-reloads the moment you save, and the whole system is
+readable if you go looking. This plugin is a love letter to that: ~440 rows of
+Kali, generated, filtered, and dropped into the menu you already use.
 
-**Only tools you actually have are listed.** `kali-menu` ships launchers for
-Kali's entire catalogue, not for what is installed, so on a typical container
-about a third of them point at nothing.
+```
+Kali
+├── Reconnaissance
+│   ├── Host Information
+│   ├── Network Information
+│   ├── Network Information: DNS
+│   └── ...
+├── Resource Development
+├── Initial Access
+├── Execution
+├── Persistence
+├── Privilege Escalation
+├── Defense Evasion
+├── Credential Access
+├── Discovery
+├── Lateral Movement
+├── Collection
+├── Command and Control
+├── Exfiltration
+├── Impact
+├── Forensics
+├── Services and Other Tools
+└── Settings
+    ├── Refresh menu
+    ├── Doctor
+    └── Container
+```
 
-## Before you install
+## The nice part: Kali already did the hard work
 
-**Tested against Omarchy 4.0.2** on x86_64. This reads and writes Omarchy's menu
-extension file and relies on specifics of its shell; treat behaviour on other
-versions as unverified, and open an issue rather than assuming it is broken by
-design.
+The `kali-menu` package ships **539 `.desktop` launchers** with a full kill-chain
+category tree — and they are thoughtfully built, pointing at a guided wizard
+where one exists (`sqlmap --wizard`) and `--help` where one doesn't. All this
+does is read that out of your container and translate it into menu rows.
+
+**Only tools you actually have get listed.** `kali-menu` describes Kali's entire
+catalogue rather than your install, so on a typical container about a third of
+those launchers point at nothing. Those are filtered out, along with the service
+entries that can't work in a container. What's left should all *work*.
+
+And because rows are generated from what's installed, a smaller metapackage gives
+you a smaller menu rather than a broken one.
+
+## A fun project, and what that means for you
+
+This started as "can I get Kali tools into the Omarchy menu?" and turned into a
+long, enjoyable rabbit hole. It works well for me, every day. But please read
+this before trusting it with anything:
+
+- **It has run on exactly one machine.** Mine. x86_64, Omarchy 4.0.2, Hyprland.
+  Every measurement in this README is a sample of one.
+- **Omarchy 4.0.2 is what it was built against.** It reads and writes Omarchy's
+  menu extension file and depends on specifics of its shell. Newer versions are
+  unverified — please open an issue rather than assume it's broken by design.
+- **Nobody has watched every GUI app draw a window.** The automated checks
+  confirm binaries load and libraries resolve; they can't confirm pixels.
+- **No warranty, MIT, hobby project.** If it eats your menu file, there's a
+  timestamped backup next to it — but you are the backup of last resort.
+
+### Use these tools responsibly
+
+This puts a few hundred security tools one click away. That's the fun of it, and
+also the responsibility: **only use them against systems you own or have explicit
+written permission to test.** Port scanning, credential attacks and exploitation
+against machines you don't have authorisation for is illegal in most
+jurisdictions. Nothing here changes that, and making the tools convenient doesn't
+make them appropriate.
+
+Not affiliated with, or endorsed by, Kali Linux/OffSec or Omarchy/37signals.
+
+## What it does on your machine
+
+Worth knowing before you enable it — none of it is hidden, but you should hear it
+from the README rather than discover it.
 
 **It runs commands as you.** Like any Omarchy plugin it is unsandboxed code in
 the shell process — `omarchy plugin add` warns about this. Concretely: when the
@@ -149,7 +214,9 @@ tunnel directly, and stays in the menu.
 
 ## Things that cost real time to find
 
-Worth reading if you are doing Kali-in-distrobox at all, with or without this.
+Honestly the best part of the project. Every one of these cost an evening, and
+they're all useful if you run Kali in a distrobox at all — with or without this
+plugin. Written down so you don't have to rediscover them.
 
 **Don't run GUI apps as root in the container.** Debian's
 `libpixbufloader_svg.so` links `libglycin`, so every SVG icon in a GTK app is
@@ -183,7 +250,10 @@ would outlive the plugin, so the root row is guarded on the plugin directory
 still existing — remove the plugin and the tree disappears. `kali-menu uninstall`
 cleans up properly.
 
-## Design note
+## Design note: why rows are generated, not served
+
+I really wanted to use a runtime `provider` here. It would have been elegant.
+It is also, sadly, not possible.
 
 The menu's `provider:` field is **not** a user extension point, despite what the
 comment in `omarchy-menu.jsonc` says. `Menu.qml` defines a `readonly` map of
@@ -214,6 +284,15 @@ test/regression       # 21 checks, each one a bug this shipped
 Not covered by either: whether a GUI app actually draws a window, and the handful
 of entries that start services. Those need a human.
 
+## Contributing
+
+Issues and PRs very welcome, especially "this broke on Omarchy X.Y" or "this
+failed on hardware you don't own" — those are exactly the gaps a one-machine
+project has. `AGENTS.md` has the orientation, and `test/regression` should stay
+green.
+
 ## Licence
 
-MIT
+MIT — see [LICENSE](LICENSE). Kali Linux and its tools are the work of
+[OffSec](https://www.kali.org/), under their own licences; Omarchy is by
+[37signals](https://omarchy.org/). This is an unaffiliated third-party plugin.
