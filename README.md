@@ -12,6 +12,22 @@ menu rows.
 Kali's entire catalogue, not for what is installed, so on a typical container
 about a third of them point at nothing.
 
+## Before you install
+
+**Tested against Omarchy 4.0.2** on x86_64. This reads and writes Omarchy's menu
+extension file and relies on specifics of its shell; treat behaviour on other
+versions as unverified, and open an issue rather than assuming it is broken by
+design.
+
+**It runs commands as you.** Like any Omarchy plugin it is unsandboxed code in
+the shell process — `omarchy plugin add` warns about this. Concretely: when the
+Kali container is **already running**, it shells out at login to regenerate the
+menu. If the container is stopped it does nothing and leaves your last rows in
+place; it will not start a 12-22 GB container behind your back.
+
+The generated menu rows also invoke `distrobox` on your behalf when clicked,
+which is the entire point, but worth knowing before you enable it.
+
 ## Install
 
 ```bash
@@ -76,6 +92,21 @@ image also installs `kali-linux-headless` explicitly and apt pulls recommends.
 
 A smaller metapackage gives a smaller menu, not a broken one. `large` roughly
 doubles the image for about 50% more tools.
+
+Both measured figures come from one machine, at one point in Kali rolling's
+life. Expect them to drift.
+
+## Uninstall
+
+```bash
+kali-menu uninstall                  # removes the rows and the symlinks
+omarchy plugin remove fygas.kali
+```
+
+Run them in that order. `omarchy plugin remove` is an `rm -rf` with no uninstall
+hook, so anything outside the plugin directory is yours to clean up. If you
+forget, nothing breaks: the generated rows are guarded on the plugin directory
+existing, so they disappear from the menu the moment it does.
 
 ## Things that cost real time to find
 

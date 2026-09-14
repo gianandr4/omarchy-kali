@@ -11,6 +11,10 @@ description: >
 
 # Kali tools in the Omarchy menu
 
+Verified against **Omarchy 4.0.2**. The Omarchy internals described below
+(the provider map, plugin lifecycle, menu merge) were read from that version's
+source — re-check them before trusting them on a newer one.
+
 Start here: `kali-menu doctor --json`. It reports container state, menu validity,
 whether every emitted command resolves, and carries a `hint` per failed check.
 
@@ -130,6 +134,10 @@ the host's menu file. `distrobox-host-exec` cannot bridge this — it needs
 - **No symlinks inside the plugin directory** — validation rejects the whole
   plugin. Symlinks into `~/.local/bin` are fine.
 - **Commit scripts `100755`.** A `100644` arrives non-executable from a clone.
+- **Sync only when the container is already running.** `podman container exists`
+  is true for a *stopped* container, and syncing shells out to `distrobox enter`,
+  which would start it — a 12-22 GB container spun up at every login for nothing.
+  Gate on `podman container inspect -f '{{.State.Running}}'` instead.
 - **`omarchy plugin remove` runs no uninstall hook**; it is an `rm -rf`. The root
   row is guarded on the plugin directory existing so rows vanish on removal.
   `kali-menu uninstall` cleans up properly and must run first.

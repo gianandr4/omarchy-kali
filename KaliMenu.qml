@@ -39,13 +39,21 @@ Item {
     }
   }
 
-  // Cheap guard before doing anything: no dependency mechanism exists for
-  // plugins, so a missing container or distrobox has to be discovered here
-  // rather than declared. Without this the generator would be spawned on every
-  // login on machines that have no Kali container at all.
+  // Only sync when the container is already RUNNING -- not merely present.
+  //
+  // `podman container exists` returns 0 for a stopped container, and syncing
+  // shells out to `distrobox enter`, which would start it. That means a 12-22 GB
+  // container spun up on every login purely to refresh a menu. Nothing is gained
+  // by it either: the rows are static, so the ones from the last sync are still
+  // correct until the container's package set changes.
+  //
+  // No dependency mechanism exists for plugins, so distrobox's absence has to be
+  // discovered here rather than declared.
   Process {
     id: preflight
-    command: ["bash", "-lc", "command -v distrobox >/dev/null && podman container exists \"${KALI_CONTAINER:-kali}\""]
+    command: ["bash", "-lc",
+      "command -v distrobox >/dev/null || exit 1; " +
+      "[ \"$(podman container inspect -f '{{.State.Running}}' \"${KALI_CONTAINER:-kali}\" 2>/dev/null)\" = true ]"]
     onExited: function (code) {
       if (code === 0)
         root.sync("startup")

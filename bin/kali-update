@@ -11,6 +11,7 @@ Prints what actually changed in the tool list, so a long apt run ends with a
 readable answer rather than a wall of dpkg output.
 
     kali-update                        # apt full-upgrade, then regenerate
+    kali-update --autoremove           # ...and purge unused packages (destructive)
     kali-update --install btop lazygit # install packages, then regenerate
     kali-update --menu-only            # skip apt, just regenerate
     kali-update --dry-run              # report what would change, write nothing
@@ -78,19 +79,26 @@ def install_packages(packages: list[str]) -> int:
     ).returncode
 
 
-def upgrade_container() -> int:
+def upgrade_container(autoremove: bool = False) -> int:
     """apt full-upgrade inside the container, output streamed to the terminal."""
     print(f"==> upgrading the '{CONTAINER}' container", flush=True)
     # full-upgrade, not upgrade: Kali is a rolling release, and its own docs
     # call for the form that is allowed to remove packages to resolve a
     # transition. DEBIAN_FRONTEND matches how the image was built.
-    script = (
-        "set -e; "
-        "export DEBIAN_FRONTEND=noninteractive; "
-        "sudo -E apt-get update && "
-        "sudo -E apt-get -y full-upgrade && "
-        "sudo -E apt-get -y autoremove --purge"
-    )
+    # full-upgrade, not upgrade: Kali is rolling, and its own docs call for the
+    # form allowed to remove packages to resolve a transition.
+    #
+    # autoremove --purge is NOT part of the default. It deletes packages and
+    # their config, which is a surprising thing for a command called "update" to
+    # do on its own -- and on a security distro the thing it removes may be the
+    # tool you needed. Opt in with --autoremove.
+    steps = [
+        "sudo -E apt-get update",
+        "sudo -E apt-get -y full-upgrade",
+    ]
+    if autoremove:
+        steps.append("sudo -E apt-get -y autoremove --purge")
+    script = "set -e; export DEBIAN_FRONTEND=noninteractive; " + " && ".join(steps)
     return subprocess.run(
         ["distrobox", "enter", CONTAINER, "--", "bash", "-lc", script]
     ).returncode
@@ -124,6 +132,8 @@ def report(before: dict[str, str], after: dict[str, str]) -> None:
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--menu-only", action="store_true", help="skip the apt upgrade")
+    parser.add_argument("--autoremove", action="store_true",
+                        help="also purge packages apt considers unused (removes things)")
     parser.add_argument(
         "--install",
         nargs="+",
@@ -147,7 +157,7 @@ def main() -> None:
     elif not args.menu_only:
         if args.dry_run:
             print("==> skipping the container upgrade (--dry-run)")
-        elif (code := upgrade_container()) != 0:
+        elif (code := upgrade_container(args.autoremove)) != 0:
             sys.exit(f"container upgrade failed (exit {code}); menu left untouched")
 
     if (code := regenerate(args.dry_run)) != 0:

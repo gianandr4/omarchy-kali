@@ -55,7 +55,20 @@ PLUGIN_DIR = Path(__file__).resolve().parent.parent
 BIN_DIR = PLUGIN_DIR / "bin"
 LINK_DIR = Path.home() / ".local" / "bin"
 LINKED = ("kali-run", "kali-gui", "kali-update", "kali-menu")
-PLUGIN_ID = PLUGIN_DIR.name
+def _plugin_id() -> str:
+    """The id Omarchy knows this by, which is what `plugin remove` takes.
+
+    Read from the manifest rather than the directory name -- a development
+    checkout is named after the repository, and printing that as uninstall
+    advice would name a plugin that does not exist.
+    """
+    try:
+        return json.loads((PLUGIN_DIR / "manifest.json").read_text(encoding="utf-8"))["id"]
+    except Exception:
+        return PLUGIN_DIR.name
+
+
+PLUGIN_ID = _plugin_id()
 
 ROOT_ID = "kali"
 # Explicit codepoints: these are Nerd Font private-use glyphs, and a literal
@@ -321,9 +334,19 @@ def run_extractor() -> dict:
         shutil.rmtree(workdir, ignore_errors=True)
 
 
-# Tools that genuinely need root and survive it. Kept deliberately tiny: the
-# default is to run as the user, because root breaks GTK apps here.
-_NEEDS_ROOT = {"fern-wifi-cracker"}
+# Tools that genuinely need root *and* survive it. Kept deliberately tiny: the
+# default is to run as the user, because root breaks GTK apps (see action_for).
+#
+# This list is an observation from one machine, not a general truth -- another
+# install may have pkexec GUIs that really do need root. Extend it without
+# editing this file:
+#
+#   KALI_NEEDS_ROOT=fern-wifi-cracker,someothertool kali-menu sync
+_NEEDS_ROOT = {
+    t.strip() for t in
+    os.environ.get("KALI_NEEDS_ROOT", "fern-wifi-cracker").split(",")
+    if t.strip()
+}
 
 KALI_RUN = shlex.quote(str(BIN_DIR / "kali-run"))
 KALI_GUI = shlex.quote(str(BIN_DIR / "kali-gui"))
@@ -411,7 +434,11 @@ def build_rows(payload: dict, include_missing: bool = False) -> tuple[list[str],
         # Guards on the plugin directory as well as the container. `omarchy
         # plugin remove` is an rm -rf with no uninstall hook, so without this
         # every row would survive removal pointing at scripts that are gone.
-        "when": f"[ -d {shlex.quote(str(PLUGIN_DIR))} ] && podman container exists {CONTAINER}",
+        # Both values are quoted: PLUGIN_DIR can contain spaces, and CONTAINER
+        # comes from the environment. This string is run by the shell every
+        # time the menu opens.
+        "when": f"[ -d {shlex.quote(str(PLUGIN_DIR))} ] && "
+                f"podman container exists {shlex.quote(CONTAINER)}",
     })
 
     add(f"{ROOT_ID}.shell", {
@@ -690,7 +717,7 @@ def cmd_doctor(args) -> None:
         failures += not _check(
             "kali-menu installed in container", "MENU_OK" in out,
             "" if "MENU_OK" in out else "the package that provides every menu row is absent",
-            hint=f"distrobox enter {CONTAINER} -- sudo apt install kali-menu")
+            hint=f"distrobox enter {shlex.quote(CONTAINER)} -- sudo apt install kali-menu")
         launchers = next((l for l in out.splitlines() if l.strip().isdigit()), "0")
         _check(f"{launchers} launchers available", True)
 
@@ -771,7 +798,10 @@ def main() -> None:
         sys.exit(2)
 
     if args.command != "doctor" and not MENU_FILE.exists():
-        sys.exit(f"missing {MENU_FILE}")
+        sys.exit(
+            f"missing {MENU_FILE}\n"
+            "Omarchy ships this file; restore it with:\n"
+            "  omarchy refresh config omarchy/extensions/omarchy-menu.jsonc")
     args.func(args)
 
 
