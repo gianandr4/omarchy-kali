@@ -1,0 +1,51 @@
+#!/usr/bin/env bash
+# Launch a Kali GUI app from inside the `kali` distrobox with no terminal
+# window, detached from whatever started it (the Omarchy menu, a keybinding).
+#
+# distrobox already forwards the Wayland/X11 socket, so the app appears as a
+# normal window. uwsm-app puts it in its own systemd scope, which is what the
+# rest of Omarchy does for graphical launches.
+#
+# A detached launch has nowhere to print, so a failure is completely silent --
+# the menu row just does nothing. That is a miserable thing to debug, so an
+# early exit raises a desktop notification carrying the actual error.
+#
+#   kali-gui burpsuite
+
+set -uo pipefail
+
+CONTAINER="${KALI_CONTAINER:-kali}"
+# A GUI that dies faster than this failed to start; one that outlives it was a
+# real session the user ended, and is none of our business.
+STARTUP_GRACE=10
+
+if [[ $# -eq 0 ]]; then
+  echo "usage: kali-gui <command> [args...]" >&2
+  exit 1
+fi
+
+app=$1
+
+launch() {
+  local log status
+  log=$(mktemp "/tmp/kali-gui-${app##*/}.XXXXXX.log")
+
+  local start=$SECONDS
+  uwsm-app -- distrobox enter "$CONTAINER" -- "$@" >"$log" 2>&1
+  status=$?
+
+  if (( status != 0 && SECONDS - start < STARTUP_GRACE )); then
+    local detail
+    # The last non-empty line is almost always the actual complaint.
+    detail=$(grep -v '^[[:space:]]*$' "$log" | tail -1)
+    [[ -z $detail ]] && detail="exited $status with no output"
+    notify-send -u critical -a "Kali" "$app failed to start" "$detail"
+  fi
+
+  rm -f "$log"
+}
+
+# setsid so the app outlives the menu process that invoked us.
+setsid bash -c "$(declare -f launch); app=$(printf %q "$app"); CONTAINER=$(printf %q "$CONTAINER"); STARTUP_GRACE=$STARTUP_GRACE; launch $(printf '%q ' "$@")" >/dev/null 2>&1 &
+
+disown

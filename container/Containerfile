@@ -1,0 +1,74 @@
+FROM docker.io/kalilinux/kali-rolling
+
+ENV DEBIAN_FRONTEND=noninteractive
+ENV LANG=C.UTF-8
+
+# systemd FIRST and in the build env: its postinst chowns /tmp, which fails
+# under distrobox because host /tmp is bind-mounted into a rootless userns.
+RUN apt-get update && apt-get -y full-upgrade && \
+    apt-get install -y systemd dbus && \
+    rm -rf /var/lib/apt/lists/*
+
+# Packages distrobox's init would otherwise install on first enter
+RUN apt-get update && apt-get install -y \
+      apt-utils bash bc curl dialog diffutils findutils gnupg2 less \
+      libnss-myhostname lsof ncurses-base ncurses-bin passwd procps \
+      sudo time wget util-linux tzdata pinentry-curses mtr iputils-ping \
+      pigz zip unzip \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN apt-get update && apt-get install -y kali-linux-core kali-linux-headless && \
+    rm -rf /var/lib/apt/lists/*
+
+# First slice kept as an explicit list (built cleanly, cached). The rest is
+# handed to apt as the metapackage: kali-linux-large uses alternative deps
+# (e.g. ettercap-graphical | ettercap-text-only) that a flattened package
+# list cannot express -- enumerating them produces unsatisfiable conflicts.
+# first slice (28 pkgs)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      0trace afflib-tools amap apache-users apktool armitage arpwatch \
+      asleap bed beef-xss bluelog blueranger bluesnarfer braa btscanner \
+      bytecode-viewer cabextract caldera cgpt chirp chkrootkit \
+      cisco-auditing-tool cisco-global-exploiter cisco-ocs cisco-torch \
+      cloud-enum cmospwd code-oss \
+    && rm -rf /var/lib/apt/lists/*
+
+# Let apt resolve the full set, alternatives and all.
+RUN apt-get update && apt-get install -y kali-linux-large && \
+    rm -rf /var/lib/apt/lists/*
+
+RUN apt-get update && apt-get install -y \
+      openvpn tmux git vim zsh python3-pip python3-venv pipx \
+      iproute2 dnsutils net-tools \
+    && rm -rf /var/lib/apt/lists/*
+
+# distrobox takes its ALT Linux code path (setup_aptrpm) when it finds BOTH
+# apt-get and rpm, then tries to install ALT package names (apt-repo-tools,
+# glibc, libEGL, vte3...) which don't exist in Kali -- init fails with exit
+# 100. Nothing hard-depends on rpm here (mc/gvmd only suggest it), so drop it
+# to keep distrobox on the Debian path.
+RUN apt-get purge -y rpm && apt-get autoremove -y --purge && \
+    rm -rf /var/lib/apt/lists/*
+
+# kali-menu ships the 539 .desktop launchers and the XDG category tree that
+# omarchy-kali-menu-generate reads to build the host's Kali menu. It is not part
+# of any kali-linux-* metapackage because it exists for Kali's own desktop
+# session, which this headless container does not run -- we only want its data.
+RUN apt-get update && apt-get install -y kali-menu && \
+    rm -rf /var/lib/apt/lists/*
+
+# HiDPI wrappers for the JVM GUI tools. JVM autodetection fails on Wayland, so
+# the scale is passed in at build time (setup.sh derives it from your monitor)
+# along with a writable java.util.prefs userRoot so settings persist.
+# /usr/local/bin precedes /usr/bin, so these win.
+ARG KALI_UI_SCALE=1
+RUN for app in burpsuite ghidra zaproxy; do \
+      [ -x "/usr/bin/$app" ] || continue; \
+      printf '%s\n' \
+        '#!/bin/sh' \
+        "export _JAVA_OPTIONS=\"-Dsun.java2d.uiScale=${KALI_UI_SCALE} -Djava.util.prefs.userRoot=\$HOME/.java\"" \
+        'mkdir -p "$HOME/.java" 2>/dev/null' \
+        "exec /usr/bin/$app \"\$@\"" \
+        > "/usr/local/bin/$app"; \
+      chmod +x "/usr/local/bin/$app"; \
+    done

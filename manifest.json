@@ -1,0 +1,13 @@
+{
+  "schemaVersion": 1,
+  "id": "fygas.kali",
+  "name": "Kali Tools",
+  "version": "0.1.0",
+  "author": "fygas",
+  "license": "MIT",
+  "description": "Kali Linux tools from a distrobox container, in the Omarchy menu.",
+  "kinds": ["service"],
+  "entryPoints": {
+    "service": "KaliMenu.qml"
+  }
+}

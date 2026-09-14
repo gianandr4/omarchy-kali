@@ -1,0 +1,149 @@
+#!/usr/bin/env python3
+"""Regression suite. Every case here is a bug this project actually shipped.
+
+Needs a working Kali container; run it before tagging a release.
+
+    test/regression
+"""
+import json, os, re, shlex, subprocess, sys, tempfile, threading, time
+from pathlib import Path
+
+REPO = Path(__file__).resolve().parent.parent
+CLI = REPO / "bin" / "kali-menu"
+MENU = Path.home() / ".config" / "omarchy" / "extensions" / "omarchy-menu.jsonc"
+CONTAINER = os.environ.get("KALI_CONTAINER", "kali")
+
+passed = failed = 0
+
+
+def check(name, ok, detail=""):
+    global passed, failed
+    if ok:
+        passed += 1
+        print(f"  [ok  ] {name}")
+    else:
+        failed += 1
+        print(f"  [FAIL] {name}" + (f" -- {detail}" if detail else ""))
+
+
+def rows(text=None):
+    src = text if text is not None else MENU.read_text(encoding="utf-8")
+    return json.loads("\n".join(l for l in src.splitlines() if not l.strip().startswith("//")))
+
+
+def run(*args):
+    return subprocess.run([str(CLI), *args], capture_output=True, text=True)
+
+
+def in_container(script):
+    return subprocess.run(
+        ["distrobox", "enter", CONTAINER, "--", "bash", "-lc", script],
+        capture_output=True, text=True)
+
+
+print("structure")
+d = rows()
+ids = set(d)
+kali = [k for k in d if k == "kali" or k.startswith("kali.")]
+check("menu parses as JSONC", True)
+check("no duplicate ids", len(ids) == len(d))
+check("no orphaned rows",
+      not [k for k in kali if "." in k and k.rsplit(".", 1)[0] not in ids])
+check("no empty categories",
+      not [k for k, v in d.items()
+           if k.startswith("kali") and isinstance(v, dict) and not v.get("action")
+           and not any(c.startswith(k + ".") for c in ids)])
+
+print("idempotence and round-trip")
+before = MENU.read_text(encoding="utf-8")
+run("sync")
+once = MENU.read_text(encoding="utf-8")
+run("sync")
+check("regenerating twice is byte-identical", once == MENU.read_text(encoding="utf-8"))
+hand = [k for k in rows() if not (k == "kali" or k.startswith("kali."))]
+run("remove")
+after_remove = rows()
+check("--remove leaves a valid file", True)
+check("--remove keeps hand-written rows",
+      all(h in after_remove for h in hand), f"expected {hand}")
+run("sync")
+check("re-sync restores the rows", len([k for k in rows() if k.startswith("kali.")]) > 0)
+
+print("atomic write (the race that emptied the menu)")
+# A reader hammering the file during a rewrite must never see a partial parse.
+stop, partial = threading.Event(), []
+def reader():
+    while not stop.is_set():
+        try:
+            rows()
+        except json.JSONDecodeError:
+            partial.append(1)
+            return
+        except FileNotFoundError:
+            partial.append(1)
+            return
+t = threading.Thread(target=reader, daemon=True)
+t.start()
+for _ in range(3):
+    run("sync")
+stop.set(); t.join(timeout=5)
+check("reader never observed a partial file", not partial)
+
+print("tee-up derivation")
+KALI_RUN = REPO / "bin" / "kali-run"
+cases = {
+    "nmap --help": "nmap", "dnschef -h": "dnschef", "gobuster help": "gobuster",
+    "nmap": "nmap", "sqlmap --wizard": "sqlmap",
+    "/usr/share/kali-menu/helper-scripts/hydra.sh": "hydra",
+    "sudo -E zenmap": "sudo -E zenmap",
+}
+derive = KALI_RUN.read_text().split("teeup=\"\"", 1)[1].split("shell=", 1)[0]
+for cmd, want in cases.items():
+    r = subprocess.run(["bash", "-c", f'cmd={shlex.quote(cmd)}\n{derive}\nprintf "%s" "$teeup"'],
+                       capture_output=True, text=True)
+    check(f"{cmd!r} -> {want!r}", r.stdout == want, f"got {r.stdout!r}")
+
+print("container invariants")
+cmds = set()
+for rid, f in rows().items():
+    if not rid.startswith("kali.") or not isinstance(f, dict) or not f.get("action"):
+        continue
+    argv = shlex.split(f["action"])
+    toks = None
+    for i, a in enumerate(argv):
+        if a.endswith("/kali-run") and i + 1 < len(argv):
+            toks = shlex.split(argv[i + 1]); break
+        if a.endswith("/kali-gui"):
+            toks = argv[i + 1:]; break
+    if not toks:
+        continue
+    c = toks[0]
+    if c in ("sudo", "doas"):
+        rest = [x for x in toks[1:] if not x.startswith("-")]
+        if not rest:
+            continue
+        c = rest[0]
+    cmds.add(c)
+missing = in_container(
+    "for c in " + " ".join(shlex.quote(c) for c in sorted(cmds)) +
+    '; do command -v "$c" >/dev/null 2>&1 || [ -x "$c" ] || echo "$c"; done')
+check(f"all {len(cmds)} emitted commands are installed",
+      not missing.stdout.strip(), missing.stdout.strip()[:120])
+
+# Pins the display fix: a GUI escalated with plain sudo loses its display, and
+# GTK apps abort under root regardless. Nobody should "simplify" this away.
+gtk = ('import gi; gi.require_version("Gtk","3.0"); from gi.repository import Gtk; '
+       'print(Gtk.init_check()[0])')
+as_user = in_container(f"python3 -c {shlex.quote(gtk)}").stdout.strip()
+as_sudo = in_container(f"sudo python3 -c {shlex.quote(gtk)}").stdout.strip()
+as_sudoE = in_container(f"sudo -E python3 -c {shlex.quote(gtk)}").stdout.strip()
+check("Gtk.init_check: user True", as_user.endswith("True"), as_user)
+check("Gtk.init_check: plain sudo False", as_sudo.endswith("False"), as_sudo)
+check("Gtk.init_check: sudo -E True", as_sudoE.endswith("True"), as_sudoE)
+check("no GTK row escalates to root",
+      not [1 for f in rows().values()
+           if isinstance(f, dict) and "kali-gui sudo" in str(f.get("action", ""))
+           and "fern-wifi-cracker" not in str(f.get("action", ""))])
+
+print(f"\n{passed} passed, {failed} failed")
+sys.exit(1 if failed else 0)

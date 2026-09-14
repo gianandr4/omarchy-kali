@@ -1,0 +1,165 @@
+#!/usr/bin/env python3
+"""Upgrade the Kali container, then refresh the Omarchy menu to match.
+
+These are two halves of one operation. Upgrading the container without
+regenerating leaves the menu advertising tools that moved or vanished;
+regenerating without upgrading just rebuilds the same rows. Doing them
+separately means remembering the second one, which is exactly the kind of thing
+nobody remembers.
+
+Prints what actually changed in the tool list, so a long apt run ends with a
+readable answer rather than a wall of dpkg output.
+
+    kali-update                        # apt full-upgrade, then regenerate
+    kali-update --install btop lazygit # install packages, then regenerate
+    kali-update --menu-only            # skip apt, just regenerate
+    kali-update --dry-run              # report what would change, write nothing
+
+Always run this on the HOST. It drives distrobox from the outside and rewrites
+the host's menu file, so there is nothing for it to do from inside the
+container -- a shim in there says so rather than failing as "command not found".
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import shlex
+import shutil
+import subprocess
+import sys
+from pathlib import Path
+
+CONTAINER = os.environ.get("KALI_CONTAINER", "kali")
+MENU_FILE = Path.home() / ".config" / "omarchy" / "extensions" / "omarchy-menu.jsonc"
+GENERATOR = "omarchy-kali-menu-generate"
+
+
+def read_tools() -> dict[str, str]:
+    """Map every generated Kali tool row id to its label.
+
+    Category rows have no action; skipping them keeps the diff to things you
+    could actually launch.
+    """
+    if not MENU_FILE.exists():
+        return {}
+    src = MENU_FILE.read_text(encoding="utf-8")
+    body = "\n".join(l for l in src.splitlines() if not l.strip().startswith("//"))
+    try:
+        rows = json.loads(body)
+    except json.JSONDecodeError:
+        return {}
+    return {
+        row_id: fields.get("label", row_id)
+        for row_id, fields in rows.items()
+        if row_id.startswith("kali.") and isinstance(fields, dict) and fields.get("action")
+    }
+
+
+def install_packages(packages: list[str]) -> int:
+    """Install packages in the container.
+
+    Here because the alternative is a two-step you have to remember: enter the
+    container to apt-install, leave it, then regenerate so the new tools show
+    up in the menu. The menu only lists tools that are actually installed, so
+    skipping the second step means the thing you just installed is invisible.
+    """
+    print(f"==> installing in '{CONTAINER}': {' '.join(packages)}", flush=True)
+    quoted = " ".join(shlex.quote(p) for p in packages)
+    script = (
+        "set -e; "
+        "export DEBIAN_FRONTEND=noninteractive; "
+        "sudo -E apt-get update && "
+        f"sudo -E apt-get -y install {quoted}"
+    )
+    return subprocess.run(
+        ["distrobox", "enter", CONTAINER, "--", "bash", "-lc", script]
+    ).returncode
+
+
+def upgrade_container() -> int:
+    """apt full-upgrade inside the container, output streamed to the terminal."""
+    print(f"==> upgrading the '{CONTAINER}' container", flush=True)
+    # full-upgrade, not upgrade: Kali is a rolling release, and its own docs
+    # call for the form that is allowed to remove packages to resolve a
+    # transition. DEBIAN_FRONTEND matches how the image was built.
+    script = (
+        "set -e; "
+        "export DEBIAN_FRONTEND=noninteractive; "
+        "sudo -E apt-get update && "
+        "sudo -E apt-get -y full-upgrade && "
+        "sudo -E apt-get -y autoremove --purge"
+    )
+    return subprocess.run(
+        ["distrobox", "enter", CONTAINER, "--", "bash", "-lc", script]
+    ).returncode
+
+
+def regenerate(dry_run: bool) -> int:
+    print("==> regenerating the Omarchy menu", flush=True)
+    argv = [GENERATOR] + (["--dry-run"] if dry_run else [])
+    # A dry run prints the whole block; we only want its summary line, which the
+    # generator writes to stderr.
+    return subprocess.run(argv, stdout=subprocess.DEVNULL if dry_run else None).returncode
+
+
+def report(before: dict[str, str], after: dict[str, str]) -> None:
+    added = sorted(after[k] for k in after.keys() - before.keys())
+    removed = sorted(before[k] for k in before.keys() - after.keys())
+
+    print()
+    if not added and not removed:
+        print(f"==> no change: {len(after)} tools, same as before")
+        return
+
+    print(f"==> {len(before)} tools -> {len(after)}")
+    for label, items in (("new", added), ("gone", removed)):
+        if not items:
+            continue
+        shown = items[:20]
+        print(f"    {label} ({len(items)}): {', '.join(shown)}" + (" ..." if len(items) > len(shown) else ""))
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--menu-only", action="store_true", help="skip the apt upgrade")
+    parser.add_argument(
+        "--install",
+        nargs="+",
+        metavar="PKG",
+        help="install these packages in the container instead of upgrading it",
+    )
+    parser.add_argument("--dry-run", action="store_true", help="report only, write nothing")
+    args = parser.parse_args()
+
+    for tool in ("distrobox", GENERATOR):
+        if not shutil.which(tool):
+            sys.exit(f"{tool} is not on PATH")
+
+    before = read_tools()
+
+    if args.install:
+        if args.dry_run:
+            print(f"==> would install: {' '.join(args.install)} (--dry-run)")
+        elif (code := install_packages(args.install)) != 0:
+            sys.exit(f"install failed (exit {code}); menu left untouched")
+    elif not args.menu_only:
+        if args.dry_run:
+            print("==> skipping the container upgrade (--dry-run)")
+        elif (code := upgrade_container()) != 0:
+            sys.exit(f"container upgrade failed (exit {code}); menu left untouched")
+
+    if (code := regenerate(args.dry_run)) != 0:
+        sys.exit(f"menu generation failed (exit {code})")
+
+    if args.dry_run:
+        # Nothing was written, so there is nothing to diff against.
+        print("\n==> dry run: menu not modified")
+        return
+
+    report(before, read_tools())
+
+
+if __name__ == "__main__":
+    main()

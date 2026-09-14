@@ -1,0 +1,19 @@
+#!/bin/bash
+# Refresh the Kali menu after `omarchy update`.
+#
+# Install with:  omarchy hook install post-update <this file>
+#
+# Cheap and silent when there is nothing to do: if the container is missing the
+# generator is never spawned. Menu rows only list tools that are installed, so
+# without this the menu quietly drifts from the container after an upgrade.
+
+set -uo pipefail
+
+PLUGIN_DIR="${OMARCHY_KALI_DIR:-$HOME/.config/omarchy/plugins/fygas.kali}"
+CLI="$PLUGIN_DIR/bin/kali-menu"
+
+[[ -x $CLI ]] || exit 0
+command -v podman >/dev/null 2>&1 || exit 0
+podman container exists "${KALI_CONTAINER:-kali}" 2>/dev/null || exit 0
+
+"$CLI" sync >/dev/null 2>&1 || true

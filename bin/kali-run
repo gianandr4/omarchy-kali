@@ -1,0 +1,99 @@
+#!/usr/bin/env bash
+# Run a Kali tool inside the `kali` distrobox, then land in a shell with the
+# command already typed at the prompt.
+#
+# Kali's own menu entries are mostly `tool --help`: they print usage and drop
+# you at a bare prompt, leaving you to retype the tool name. This does the same
+# run, then pre-fills the command line with the tool ready to take arguments,
+# so the menu row ends one keystroke from a real invocation instead of at a
+# blank prompt.
+#
+#   kali-run                      # just enter the container
+#   kali-run 'nmap --help'        # show usage, then land on `nmap `
+#   kali-run 'sqlmap --wizard'    # run the wizard, then land on `sqlmap `
+
+set -uo pipefail
+
+CONTAINER="${KALI_CONTAINER:-kali}"
+
+if [[ $# -eq 0 ]]; then
+  exec distrobox enter "$CONTAINER"
+fi
+
+# The inner script runs in the container. Quoted heredoc: nothing here is
+# expanded by the host shell, so the quoting stays readable.
+INNER=$(cat <<'INNER_EOF'
+cmd=$1
+
+# Echo the command the way Kali's exec-in-shell does, so the transcript shows
+# what produced the output.
+printf '\033[1;32m$\033[0m %s\n' "$cmd"
+eval "$cmd"
+
+# Work out what to leave sitting at the prompt.
+teeup=""
+case "$cmd" in
+  */helper-scripts/*)
+    # `.../helper-scripts/hydra.sh` -> `hydra`: the script is a guided wrapper,
+    # but the thing you actually want to type next is the tool.
+    base=${cmd##*/}
+    teeup=${base%.sh}
+    ;;
+esac
+
+if [ -z "$teeup" ]; then
+  # A trailing help flag is exactly what you would delete before typing real
+  # arguments, so drop it and keep everything else.
+  stripped=$(printf '%s' "$cmd" | sed -E 's/[[:space:]]+(--help|-help|-h|help)[[:space:]]*$//')
+  if [ "$stripped" != "$cmd" ]; then
+    teeup=$stripped
+  else
+    # Bare tool name, or a real invocation like `sqlmap --wizard`: offer the
+    # tool itself rather than replaying arguments you have already seen run.
+    teeup=${cmd%% *}
+    # ...but `sudo ` alone is useless. These rows are rewritten from Kali's
+    # pkexec launchers and carry no arguments of their own, so offer the whole
+    # line -- including the -E that keeps the GUI's display.
+    case "$teeup" in
+      sudo|doas) teeup=$cmd ;;
+    esac
+  fi
+fi
+
+shell=${SHELL:-bash}
+case "$shell" in
+  *zsh)
+    # zsh has a first-class version of this: print -z pushes onto the editor
+    # buffer stack, so the next prompt comes up with the line already in it.
+    rc=$(mktemp /tmp/kali-run-zshrc.XXXXXX)
+    {
+      printf 'rm -f %s\n' "$rc"
+      printf '[ -f "$HOME/.zshrc" ] && . "$HOME/.zshrc"\n'
+      printf 'print -z %s\x27 \x27\n' "${teeup// /\\ }"
+    } >"$rc"
+    ZDOTDIR=$(dirname "$rc") exec zsh -i --rcs 2>/dev/null || exec zsh -i
+    ;;
+esac
+
+# bash: readline has no direct "pre-fill the buffer" call, but it will expand a
+# macro bound to a key sequence. Asking the terminal for a device status report
+# (ESC[5n) makes it reply ESC[0n, which readline then treats as that sequence
+# and inserts the text. History is seeded too, so Up-arrow still works if the
+# terminal does not answer the status request.
+esc=$(printf '%s' "$teeup" | sed 's/\\/\\\\/g; s/"/\\"/g')
+
+rc=$(mktemp /tmp/kali-run-bashrc.XXXXXX)
+{
+  printf 'rm -f %s\n' "$rc"
+  printf '[ -f "$HOME/.bashrc" ] && . "$HOME/.bashrc"\n'
+  printf 'history -s "%s "\n' "$esc"
+  printf 'bind '\''"\\e[0n": "%s "'\'' 2>/dev/null\n' "$esc"
+  printf 'printf "\\033[5n"\n'
+} >"$rc"
+
+exec bash --rcfile "$rc" -i
+INNER_EOF
+)
+
+# "$*" so a command passed as several words still arrives as one string.
+exec distrobox enter "$CONTAINER" -- bash -c "$INNER" kali-run "$*"
