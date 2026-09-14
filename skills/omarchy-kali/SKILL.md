@@ -142,6 +142,16 @@ the host's menu file. `distrobox-host-exec` cannot bridge this — it needs
 `host-spawn`, which wants the Flatpak D-Bus portal. Use
 `kali-update --install <pkgs>` from the host instead of entering the container.
 
+## Which container is in use
+
+Precedence: `KALI_CONTAINER` in the environment, then
+`~/.local/state/omarchy-kali/container` (written by `kali-menu use`), then `kali`.
+All four commands implement this, two of them in bash and two in Python — change
+one and change them all.
+
+The state file is deliberately outside the plugin directory: inotify watches that
+tree and any write there reloads the plugin.
+
 ## Invariants — do not break these
 
 - **`provider:` is not a user extension point.** `Menu.qml` defines a `readonly`

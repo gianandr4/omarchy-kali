@@ -14,7 +14,23 @@
 
 set -uo pipefail
 
-CONTAINER="${KALI_CONTAINER:-kali}"
+# Which container to use: the environment wins (a one-off override), then the
+# choice persisted by `kali-menu use`, then the default.
+kali_container() {
+  if [ -n "${KALI_CONTAINER:-}" ]; then
+    printf '%s' "$KALI_CONTAINER"
+    return
+  fi
+  local f="${XDG_STATE_HOME:-$HOME/.local/state}/omarchy-kali/container"
+  if [ -s "$f" ]; then
+    local name
+    name=$(head -n1 "$f" | tr -d '[:space:]')
+    [ -n "$name" ] && { printf '%s' "$name"; return; }
+  fi
+  printf 'kali'
+}
+
+CONTAINER="$(kali_container)"
 # A GUI that dies faster than this failed to start; one that outlives it was a
 # real session the user ended, and is none of our business.
 STARTUP_GRACE=10

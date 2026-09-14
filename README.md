@@ -60,6 +60,7 @@ The menu hot-reloads; no restart. Point it at a differently-named container with
 | | |
 |---|---|
 | `kali-menu sync` | regenerate the rows |
+| `kali-menu use <container>` | switch container and rebuild for it |
 | `kali-menu doctor` | check the install and say what's wrong |
 | `kali-menu uninstall` | remove rows and symlinks — **run before `omarchy plugin remove`** |
 | `kali-run 'nmap --help'` | run a tool, then land in a shell with `nmap ` already typed |
@@ -70,6 +71,19 @@ The menu hot-reloads; no restart. Point it at a differently-named container with
 Rows are written between sentinel comments in
 `~/.config/omarchy/extensions/omarchy-menu.jsonc`; anything you hand-write
 outside that block is preserved, and a timestamped backup is kept each run.
+
+## Using more than one container
+
+`Kali → Settings → Container` lists every distrobox on the machine and ticks the
+one in use. Picking another switches to it and rebuilds the menu.
+
+The rebuild is not optional: rows are filtered by what is installed in the
+container they were generated from, so pointing at a different one without
+regenerating would leave rows for tools it may not have.
+
+The choice is stored in `~/.local/state/omarchy-kali/container` and honoured by
+all four commands. `KALI_CONTAINER=<name>` still overrides it for one-offs. The
+submenu only appears when there is more than one container to choose from.
 
 ## Building a container
 

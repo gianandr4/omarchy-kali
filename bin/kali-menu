@@ -33,7 +33,30 @@ import time
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
-CONTAINER = os.environ.get("KALI_CONTAINER", "kali")
+# Which container to use, in precedence order: the environment (a one-off
+# override), then the persisted choice, then the default.
+#
+# Stored outside the plugin directory on purpose: inotify watches that tree and
+# any write there reloads the plugin.
+CONTAINER_FILE = Path(
+    os.environ.get("XDG_STATE_HOME", str(Path.home() / ".local" / "state"))
+) / "omarchy-kali" / "container"
+
+
+def _container() -> str:
+    env = os.environ.get("KALI_CONTAINER")
+    if env:
+        return env
+    try:
+        name = CONTAINER_FILE.read_text(encoding="utf-8").strip()
+        if name:
+            return name
+    except OSError:
+        pass
+    return "kali"
+
+
+CONTAINER = _container()
 HOME = Path.home()
 MENU_FILE = HOME / ".config" / "omarchy" / "extensions" / "omarchy-menu.jsonc"
 # distrobox mounts the whole host filesystem at /run/host inside every
@@ -389,6 +412,7 @@ _NEEDS_ROOT = {
 
 KALI_RUN = shlex.quote(str(BIN_DIR / "kali-run"))
 KALI_GUI = shlex.quote(str(BIN_DIR / "kali-gui"))
+KALI_MENU = shlex.quote(str(BIN_DIR / "kali-menu"))
 
 
 def action_for(entry: dict) -> str:
@@ -494,6 +518,47 @@ def build_rows(payload: dict, include_missing: bool = False) -> tuple[list[str],
         "aliases": ["kali-shell", "distrobox"],
         "action": f"omarchy-launch-tui --app-id=org.omarchy.kali {KALI_RUN}",
     })
+
+    add(f"{ROOT_ID}.settings", {
+        "icon": ICON_CATEGORY,
+        "label": "Settings",
+        "description": "Kali menu settings",
+    })
+    add(f"{ROOT_ID}.settings.sync", {
+        "icon": ICON_TERMINAL,
+        "label": "Refresh menu",
+        "description": "Regenerate the rows from the container",
+        "action": f"omarchy-launch-tui --app-id=org.omarchy.kali {KALI_MENU} sync",
+    })
+    add(f"{ROOT_ID}.settings.doctor", {
+        "icon": ICON_TERMINAL,
+        "label": "Doctor",
+        "description": "Check the install and report what is wrong",
+        "action": f"omarchy-launch-tui --app-id=org.omarchy.kali bash -lc {shlex.quote(str(BIN_DIR / 'kali-menu') + ' doctor; read -n1 -p \'\nEnter to close\'')}",
+    })
+    containers = payload.get("containers") or [CONTAINER]
+    if len(containers) > 1:
+        add(f"{ROOT_ID}.settings.container", {
+            "icon": ICON_CATEGORY,
+            "label": "Container",
+            "description": f"Which distrobox to read tools from (now: {CONTAINER})",
+        })
+        for name in containers:
+            add(f"{ROOT_ID}.settings.container.{slugify(name)}", {
+                "icon": ICON_TERMINAL,
+                "label": name,
+                "description": f"Use the {name} container and rebuild the menu",
+                # Switching re-syncs, which takes a moment and can fail, so it
+                # runs in a terminal where that is visible.
+                "action": f"omarchy-launch-tui --app-id=org.omarchy.kali {KALI_MENU} use {shlex.quote(name)}",
+                # Reads the live choice rather than baking in whatever was
+                # current at generate time, so the tick stays honest even after
+                # a one-off KALI_CONTAINER override.
+                "checked": (
+                    f'[ "${{KALI_CONTAINER:-$(cat {shlex.quote(str(CONTAINER_FILE))} '
+                    f'2>/dev/null || echo kali)}}" = {shlex.quote(name)} ]'
+                ),
+            })
 
     def add_tools(parent_id: str, category: str) -> None:
         for entry in entries.get(category, []):
@@ -645,6 +710,7 @@ def prune_backups() -> None:
 
 def cmd_sync(args) -> None:
     payload = run_extractor()
+    payload["containers"] = list_containers()
     block, skipped = build_rows(payload, include_missing=args.include_missing)
     n_missing, n_svc = skipped["missing"], skipped["needs_systemd"]
     block = [l + "," for l in block[:-1]] + block[-1:]
@@ -723,6 +789,35 @@ _RESULTS: list[dict] = []
 def _check(label, ok, detail="", hint=""):
     _RESULTS.append({"check": label, "ok": bool(ok), "detail": detail, "hint": hint})
     return ok
+
+
+def list_containers() -> list[str]:
+    """Distrobox containers on this machine, by label rather than by name."""
+    r = subprocess.run(
+        ["podman", "ps", "-a", "--filter", "label=manager=distrobox", "--format", "{{.Names}}"],
+        capture_output=True, text=True)
+    return sorted(n for n in r.stdout.split() if n)
+
+
+def cmd_use(args) -> None:
+    """Switch containers and rebuild the menu for the new one.
+
+    A re-sync is not optional: rows are filtered by what is installed in the
+    container they were generated from, so pointing at a different one without
+    regenerating would leave rows for tools that container may not have.
+    """
+    name = args.container
+    available = list_containers()
+    if name not in available:
+        sys.exit(f"no distrobox container named {name!r}. available: {', '.join(available) or 'none'}")
+    CONTAINER_FILE.parent.mkdir(parents=True, exist_ok=True)
+    CONTAINER_FILE.write_text(name + "\n", encoding="utf-8")
+    print(f"container set to {name}")
+
+    global CONTAINER
+    CONTAINER = name
+    os.environ["KALI_CONTAINER"] = name
+    cmd_sync(args)
 
 
 def cmd_skill(args) -> None:
@@ -835,6 +930,10 @@ def main() -> None:
     p_sync.add_argument("--include-missing", action="store_true",
                         help="also emit rows for tools not installed in the container")
     p_sync.set_defaults(func=cmd_sync)
+
+    p_use = sub.add_parser("use", help="switch container and rebuild the menu")
+    p_use.add_argument("container", help="distrobox container name")
+    p_use.set_defaults(func=cmd_use, dry_run=False, include_missing=False, json=False)
 
     p_doc = sub.add_parser("doctor", help="check the install and report what is wrong")
     p_doc.add_argument("--json", action="store_true",

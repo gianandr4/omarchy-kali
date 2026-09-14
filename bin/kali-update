@@ -32,7 +32,24 @@ import subprocess
 import sys
 from pathlib import Path
 
-CONTAINER = os.environ.get("KALI_CONTAINER", "kali")
+def _container() -> str:
+    """Same precedence as kali-menu: environment, then persisted choice, then
+    the default."""
+    env = os.environ.get("KALI_CONTAINER")
+    if env:
+        return env
+    f = Path(os.environ.get("XDG_STATE_HOME", str(Path.home() / ".local" / "state"))) \
+        / "omarchy-kali" / "container"
+    try:
+        name = f.read_text(encoding="utf-8").strip()
+        if name:
+            return name
+    except OSError:
+        pass
+    return "kali"
+
+
+CONTAINER = _container()
 MENU_FILE = Path.home() / ".config" / "omarchy" / "extensions" / "omarchy-menu.jsonc"
 GENERATOR = "omarchy-kali-menu-generate"
 
