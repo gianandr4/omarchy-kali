@@ -61,8 +61,21 @@ hand, the caches are present, `GLYCIN_SECCOMP_DEFAULT_ACTION` has no effect at
 any value, and a container built with `--security-opt seccomp=unconfined` aborts
 exactly the same.
 
-Root is usually unnecessary: with `--cap-add=NET_RAW`, `nmap -sS` works
-unprivileged, which is the only reason Kali's launchers wanted root.
+Root is usually unnecessary, but be precise about why: `/usr/bin/nmap` is a
+wrapper, and the real binary at `/usr/lib/nmap/nmap` carries
+`cap_net_raw,cap_net_admin,cap_net_bind_service=eip`; the wrapper adds
+`--privileged` for non-root callers so nmap trusts them. The container's
+`--cap-add` only populates the bounding set that lets those file caps apply —
+the shell never holds the capability, and a plain process still cannot open a
+raw socket (`CapEff: 0`, `PermissionError`). Do not conclude from a failing raw
+socket that nmap is broken; check `getcap /usr/lib/nmap/nmap`.
+
+### Zenmap warns "you are not root"
+
+Expected, and harmless on a capability-based install. Zenmap tests
+`os.getuid() == 0` (`zenmapGUI/App.py:146`) and knows nothing about file
+capabilities, so it warns while the scans it drives work normally. Do not
+"fix" it by running zenmap as root -- that is the GTK abort above.
 
 ### "Gtk couldn't be initialized" (a different error)
 

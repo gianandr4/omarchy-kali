@@ -228,9 +228,21 @@ plugin. Written down so you don't have to rediscover them.
 `libpixbufloader_svg.so` links `libglycin`, so every SVG icon in a GTK app is
 decoded by a helper inside a `bwrap` sandbox. As root that helper exits 1 and GTK
 aborts on the assert in `gtkiconhelper.c` — zenmap builds its entire main window,
-then dies with SIGABRT. As your user it is fine. Qt apps are unaffected. Root is
-usually unnecessary anyway: with `--cap-add=NET_RAW`, `nmap -sS` works
-unprivileged, which is the only reason Kali's launchers wanted root.
+then dies with SIGABRT. As your user it is fine. Qt apps are unaffected.
+
+Root is usually unnecessary anyway, though not for the obvious reason.
+`/usr/bin/nmap` is a 165-byte wrapper; the real binary at `/usr/lib/nmap/nmap`
+carries `cap_net_raw,cap_net_admin,cap_net_bind_service=eip`, and the wrapper
+passes `--privileged` when you are not root so nmap trusts those caps. The
+container's `--cap-add` only puts them in the **bounding set**, which is what
+lets the file caps take effect — your shell never holds them, and a plain
+process still gets `PermissionError` opening a raw socket. The upshot is that
+`nmap -sS` really does run a SYN scan as you, byte-identical to the output
+under `sudo`.
+
+**Zenmap's "you are not root" warning is a false alarm here.** It checks
+`os.getuid() == 0` (`zenmapGUI/App.py:146`) and knows nothing about file
+capabilities, so it warns even though the scans it drives work fine. Dismiss it.
 
 **Wireshark needs its group creating.** `wireshark-common`'s debconf step never
 runs in a non-interactive image build, so the `wireshark` group is never created

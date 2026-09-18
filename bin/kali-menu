@@ -478,9 +478,15 @@ def action_for(entry: dict) -> str:
         # with SIGABRT. As the user it is fine. Measured: `zenmap` alive at
         # 30s, `sudo -E zenmap` aborted at 2s.
         #
-        # Root is not needed anyway. The container is created with
-        # --cap-add=NET_RAW, so `nmap -sS` works unprivileged -- which is the
-        # whole reason these entries wanted root.
+        # Root is not needed anyway, though not for the reason it first looks.
+        # /usr/bin/nmap is a wrapper; the real binary at /usr/lib/nmap/nmap
+        # carries cap_net_raw,cap_net_admin,cap_net_bind_service=eip, and the
+        # wrapper passes --privileged when you are not root so nmap trusts them.
+        # The container's --cap-add only puts those caps in the bounding set,
+        # which is what lets the file caps take effect -- your shell never holds
+        # them, and a plain process still cannot open a raw socket. Either way
+        # `nmap -sS` really does run a SYN scan as you; verified identical to
+        # the output under sudo.
         return f"{KALI_GUI} " + " ".join(shlex.quote(a) for a in argv[1:])
 
     if entry["terminal"]:
