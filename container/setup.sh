@@ -78,6 +78,21 @@ distrobox enter --name "$NAME" -- true
 #
 # This cannot live in the Containerfile: the home is a host directory
 # bind-mounted in after the image is built, so no RUN layer can reach it.
+# wireshark-common's debconf step never runs in a non-interactive image build,
+# so the `wireshark` group is never created and dumpcap keeps root-only perms.
+# Kali's launcher then takes its fallback path -- `pkexec wireshark` -- which
+# hangs forever in a container with no polkit agent. This is the setup that step
+# would have done, and it also lets you capture without being root.
+echo "==> allowing packet capture as your user (wireshark group)"
+distrobox enter --name "$NAME" -- bash -lc '
+  sudo groupadd -f wireshark
+  sudo usermod -aG wireshark "$(id -un)"
+  if [ -x /usr/bin/dumpcap ]; then
+    sudo chgrp wireshark /usr/bin/dumpcap
+    sudo chmod 754 /usr/bin/dumpcap
+    sudo setcap cap_net_raw,cap_net_admin+eip /usr/bin/dumpcap
+  fi' || echo "   (skipped -- wireshark not installed?)"
+
 echo "==> fixing ownership of the container home"
 distrobox enter --name "$NAME" -- bash -lc \
   'sudo chown -R "$(id -u):$(id -g)" "$HOME" 2>/dev/null; true'

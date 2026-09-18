@@ -252,6 +252,32 @@ def needs_service_manager(command):
     return bool(re.search(rb"kali-service-(start|stop)|(^|[;&| \t])systemctl( |$)", head, re.M))
 
 
+def needs_polkit(command):
+    """Does this launcher reach for pkexec in command position?
+
+    There is no polkit agent in a container, so pkexec waits forever on a prompt
+    nobody can answer -- the row hangs without even producing an error.
+
+    Command position matters. armitage.sh opens `pkexec msfdb init && armitage`
+    and can never work here. wireshark.sh mentions pkexec too, but only inside a
+    substitution that selects it when you are not in the `wireshark` group --
+    and setup.sh puts you in that group, so it takes the direct path. Matching
+    the word anywhere would wrongly drop a launcher that works.
+    """
+    if not command or "/" not in command:
+        command = shutil.which(command or "") or ""
+    if not command or not os.path.isfile(command):
+        return False
+    try:
+        with open(command, "rb") as fh:
+            head = fh.read(65536)
+    except OSError:
+        return False
+    if head[:2] != b"#!":
+        return False
+    return bool(re.search(rb"^[ \t]*pkexec[ \t]", head, re.M))
+
+
 def is_installed(command):
     """kali-menu ships launchers for Kali's whole catalogue, not for what is
     actually installed here, so roughly a third of them point at nothing."""
@@ -295,6 +321,7 @@ def entries_by_category():
         resolved = command if "/" in command else (shutil.which(command) or "")
         entry = {
             "needs_systemd": needs_service_manager(resolved),
+            "needs_polkit": needs_polkit(resolved),
             "label": label,
             "comment": fields.get("Comment", ""),
             "package": fields.get("X-Kali-Package", ""),
@@ -474,6 +501,7 @@ def build_rows(payload: dict, include_missing: bool = False) -> tuple[list[str],
     booted = payload.get("systemd_booted", True)
     skipped: set[str] = set()
     skipped_svc: set[str] = set()
+    skipped_pk: set[str] = set()
 
     def usable(entry: dict) -> bool:
         # Entries from an older extractor have no "installed" key; keep those
@@ -483,6 +511,9 @@ def build_rows(payload: dict, include_missing: bool = False) -> tuple[list[str],
             return False
         if entry.get("needs_systemd") and not booted and not include_missing:
             skipped_svc.add(entry.get("command") or entry["label"])
+            return False
+        if entry.get("needs_polkit") and not include_missing:
+            skipped_pk.add(entry.get("command") or entry["label"])
             return False
         return True
     rows: list[tuple[str, dict]] = []
@@ -549,7 +580,9 @@ def build_rows(payload: dict, include_missing: bool = False) -> tuple[list[str],
         over the same entries repeatedly."""
         if not (include_missing or entry.get("installed", True)):
             return False
-        return not (entry.get("needs_systemd") and not booted and not include_missing)
+        if entry.get("needs_systemd") and not booted and not include_missing:
+            return False
+        return not (entry.get("needs_polkit") and not include_missing)
 
     def has_content(node: dict) -> bool:
         """Does this branch hold anything worth showing, at any depth?"""
@@ -626,7 +659,8 @@ def build_rows(payload: dict, include_missing: bool = False) -> tuple[list[str],
             })
 
     return ([jsonc_row(row_id, fields) for row_id, fields in rows],
-            {"missing": len(skipped), "needs_systemd": len(skipped_svc), "booted": booted})
+            {"missing": len(skipped), "needs_systemd": len(skipped_svc),
+             "needs_polkit": len(skipped_pk), "booted": booted})
 
 
 def ensure_trailing_comma(head_lines: list[str]) -> list[str]:
@@ -715,6 +749,7 @@ def cmd_sync(args) -> None:
     payload["containers"] = list_containers()
     block, skipped = build_rows(payload, include_missing=args.include_missing)
     n_missing, n_svc = skipped["missing"], skipped["needs_systemd"]
+    n_pk = skipped["needs_polkit"]
     block = [l + "," for l in block[:-1]] + block[-1:]
 
     if args.dry_run:
@@ -735,6 +770,9 @@ def cmd_sync(args) -> None:
     if n_svc:
         print(f"skipped {n_svc} service entries: systemd is not booted in this container "
               f"(distrobox create --init boots it)")
+    if n_pk:
+        print(f"skipped {n_pk} entries that escalate with pkexec: no polkit agent in the "
+              f"container, so they would hang")
     print(f"previous version saved as {backup}")
 
 

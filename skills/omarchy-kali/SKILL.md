@@ -101,6 +101,31 @@ entries missing, ask whether their container uses `--init`.
 Do not confuse `iodine-client-start` with this class — it sets up a tunnel
 directly and is correctly kept.
 
+### Wireshark does nothing when clicked
+
+`wireshark.sh` runs `$(id -Gn | grep -q wireshark || echo pkexec) wireshark`. If
+the `wireshark` group does not exist you are never in it, so it picks `pkexec`,
+which hangs forever with no polkit agent — a silent failure, since it never exits
+for the launcher's error notification to fire.
+
+```bash
+distrobox enter kali -- bash -lc 'getent group wireshark || echo MISSING'
+```
+
+Fix (what `wireshark-common`'s debconf step would have done, had the image build
+not been non-interactive):
+
+```bash
+distrobox enter kali -- bash -lc '
+  sudo groupadd -f wireshark
+  sudo usermod -aG wireshark "$(id -un)"
+  sudo chgrp wireshark /usr/bin/dumpcap
+  sudo chmod 754 /usr/bin/dumpcap
+  sudo setcap cap_net_raw,cap_net_admin+eip /usr/bin/dumpcap'
+```
+
+The group is effective in the next `distrobox enter`; no container restart needed.
+
 ### PermissionError from a tool in the container
 
 distrobox's first-run init creates `~/.config`, `~/.local`, `~/.java` as root
@@ -172,6 +197,10 @@ tree and any write there reloads the plugin.
 - **`omarchy plugin remove` runs no uninstall hook**; it is an `rm -rf`. The root
   row is guarded on the plugin directory existing so rows vanish on removal.
   `kali-menu uninstall` cleans up properly and must run first.
+- **`pkexec` in command position means the row can never work** — no polkit agent.
+  Detect it at command position only: `wireshark.sh` names pkexec in a fallback
+  substitution it does not take, and matching the word anywhere drops a working
+  launcher.
 - **Presence is not function.** A launcher can be installed and executable and
   still be impossible — the systemd service entries are the example. When adding
   a filter, ask what makes the row *work*, not what makes it *exist*.

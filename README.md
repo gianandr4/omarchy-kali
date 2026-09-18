@@ -212,6 +212,12 @@ assumed.
 `iodine-client-start` looks like one of these and is not — it configures a
 tunnel directly, and stays in the menu.
 
+Entries that escalate with `pkexec` in command position are dropped for the same
+reason: no polkit agent means they hang without even an error. `armitage` is the
+one this catches. `wireshark` mentions `pkexec` too but only as a fallback when
+you are not in the `wireshark` group — and `setup.sh` puts you in it, so it takes
+the direct path and stays.
+
 ## Things that cost real time to find
 
 Honestly the best part of the project. Every one of these cost an evening, and
@@ -225,6 +231,13 @@ aborts on the assert in `gtkiconhelper.c` — zenmap builds its entire main wind
 then dies with SIGABRT. As your user it is fine. Qt apps are unaffected. Root is
 usually unnecessary anyway: with `--cap-add=NET_RAW`, `nmap -sS` works
 unprivileged, which is the only reason Kali's launchers wanted root.
+
+**Wireshark needs its group creating.** `wireshark-common`'s debconf step never
+runs in a non-interactive image build, so the `wireshark` group is never created
+and `dumpcap` keeps root-only permissions. Kali's launcher checks that group and
+falls back to `pkexec wireshark` — which hangs forever. `setup.sh` now does what
+debconf would have: creates the group, adds you to it, and gives `dumpcap`
+`cap_net_raw,cap_net_admin`. That also lets you capture without being root.
 
 **`pkexec` cannot work in the container** — there is no polkit agent, so it hangs
 on a prompt nobody can answer. Kali's `pkexec` launchers are rewritten to run as
