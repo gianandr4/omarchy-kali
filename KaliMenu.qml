@@ -53,7 +53,13 @@ Item {
     id: preflight
     command: ["bash", "-lc",
       "command -v distrobox >/dev/null || exit 1; " +
-      "[ \"$(podman container inspect -f '{{.State.Running}}' \"${KALI_CONTAINER:-kali}\" 2>/dev/null)\" = true ]"]
+      // distrobox autodetects its container manager; hardcoding podman means
+      // this never fires on a docker-based machine.
+      "m=${DBX_CONTAINER_MANAGER:-}; " +
+      "[ -n \"$m\" ] || for c in podman podman-launcher docker lilipod; do " +
+      "command -v \"$c\" >/dev/null && { m=$c; break; }; done; " +
+      "[ -n \"$m\" ] || exit 1; " +
+      "[ \"$(\"$m\" container inspect -f '{{.State.Running}}' \"${KALI_CONTAINER:-kali}\" 2>/dev/null)\" = true ]"]
     onExited: function (code) {
       if (code === 0)
         root.sync("startup")

@@ -95,6 +95,11 @@ which is the entire point, but worth knowing before you enable it.
 
 ## Install
 
+Needs Omarchy, `distrobox`, and a container manager. distrobox autodetects
+podman, docker or lilipod, and this follows whatever it picks — `podman` is the
+usual choice on Arch, and `DBX_CONTAINER_MANAGER` overrides the detection for
+both.
+
 ```bash
 omarchy plugin add https://github.com/gianandr4/omarchy-kali
 omarchy plugin enable fygas.kali

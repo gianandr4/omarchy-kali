@@ -43,6 +43,26 @@ CONTAINER_FILE = Path(
 ) / "omarchy-kali" / "container"
 
 
+# distrobox supports podman, docker and lilipod and autodetects between them
+# (distrobox-create:517-528). Hardcoding podman means the menu silently never
+# appears on a docker-based machine, because the rows' `when` guard fails.
+_MANAGERS = ("podman", "podman-launcher", "docker", "lilipod")
+
+
+def container_manager() -> str:
+    """Same precedence distrobox uses, and the same env var to override it."""
+    env = os.environ.get("DBX_CONTAINER_MANAGER")
+    if env and shutil.which(env):
+        return env
+    for m in _MANAGERS:
+        if shutil.which(m):
+            return m
+    return "podman"
+
+
+MANAGER = container_manager()
+
+
 def _container() -> str:
     env = os.environ.get("KALI_CONTAINER")
     if env:
@@ -545,7 +565,8 @@ def build_rows(payload: dict, include_missing: bool = False) -> tuple[list[str],
         # comes from the environment. This string is run by the shell every
         # time the menu opens.
         "when": f"[ -d {shlex.quote(str(PLUGIN_DIR))} ] && "
-                f"podman container exists {shlex.quote(CONTAINER)}",
+                f"{shlex.quote(MANAGER)} container inspect "
+                f"{shlex.quote(CONTAINER)} >/dev/null 2>&1",
     })
 
     add(f"{ROOT_ID}.shell", {
@@ -840,7 +861,7 @@ def _check(label, ok, detail="", hint=""):
 def list_containers() -> list[str]:
     """Distrobox containers on this machine, by label rather than by name."""
     r = subprocess.run(
-        ["podman", "ps", "-a", "--filter", "label=manager=distrobox", "--format", "{{.Names}}"],
+        [MANAGER, "ps", "-a", "--filter", "label=manager=distrobox", "--format", "{{.Names}}"],
         capture_output=True, text=True)
     return sorted(n for n in r.stdout.split() if n)
 
@@ -889,10 +910,12 @@ def cmd_doctor(args) -> None:
     _RESULTS.clear()
     failures = 0
 
-    for tool in ("distrobox", "podman"):
-        # No plugin dependency mechanism exists, so check at runtime.
-        failures += not _check(f"{tool} installed", shutil.which(tool) is not None,
-                               hint=f"omarchy pkg add {tool}")
+    # No plugin dependency mechanism exists, so check at runtime.
+    failures += not _check("distrobox installed", shutil.which("distrobox") is not None,
+                           hint="omarchy pkg add distrobox")
+    failures += not _check(f"container manager ({MANAGER})", shutil.which(MANAGER) is not None,
+                           "no podman, docker or lilipod found" if not shutil.which(MANAGER) else "",
+                           hint="omarchy pkg add podman")
 
     for name in LINKED:
         f = BIN_DIR / name
@@ -901,7 +924,8 @@ def cmd_doctor(args) -> None:
             "" if f.exists() else "missing",
         )
 
-    exists = subprocess.run(["podman", "container", "exists", CONTAINER]).returncode == 0
+    exists = subprocess.run([MANAGER, "container", "inspect", CONTAINER],
+                           capture_output=True).returncode == 0
     failures += not _check(f"container '{CONTAINER}' exists", exists,
                            hint=f"{PLUGIN_DIR}/container/setup.sh, or set KALI_CONTAINER")
 
@@ -949,6 +973,7 @@ def cmd_doctor(args) -> None:
         "plugin_dir": str(PLUGIN_DIR),
         "plugin_id": PLUGIN_ID,
         "container": CONTAINER,
+        "container_manager": MANAGER,
         "menu_file": str(MENU_FILE),
     }
     if args.json:

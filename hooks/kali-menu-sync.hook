@@ -13,7 +13,14 @@ PLUGIN_DIR="${OMARCHY_KALI_DIR:-$HOME/.config/omarchy/plugins/fygas.kali}"
 CLI="$PLUGIN_DIR/bin/kali-menu"
 
 [[ -x $CLI ]] || exit 0
-command -v podman >/dev/null 2>&1 || exit 0
-podman container exists "${KALI_CONTAINER:-kali}" 2>/dev/null || exit 0
+# distrobox autodetects podman/docker/lilipod; match it rather than assume.
+MANAGER="${DBX_CONTAINER_MANAGER:-}"
+if [[ -z $MANAGER ]]; then
+  for c in podman podman-launcher docker lilipod; do
+    command -v "$c" >/dev/null 2>&1 && { MANAGER=$c; break; }
+  done
+fi
+[[ -n $MANAGER ]] || exit 0
+"$MANAGER" container inspect "${KALI_CONTAINER:-kali}" >/dev/null 2>&1 || exit 0
 
 "$CLI" sync >/dev/null 2>&1 || true

@@ -23,9 +23,17 @@ KHOME="${KALI_HOME:-$HOME/kali/home}"
 DIR="$(cd "$(dirname "$0")" && pwd)"
 
 [ "$(id -u)" -eq 0 ] && { echo "do NOT run this with sudo -- this is rootless"; exit 1; }
-for c in distrobox podman; do
-  command -v $c >/dev/null || { echo "missing $c -> sudo pacman -S --needed distrobox podman"; exit 1; }
-done
+command -v distrobox >/dev/null || { echo "missing distrobox -> omarchy pkg add distrobox"; exit 1; }
+
+# distrobox autodetects its container manager (distrobox-create:517-528); build
+# with whichever one it will actually use.
+MANAGER="${DBX_CONTAINER_MANAGER:-}"
+if [ -z "$MANAGER" ]; then
+  for c in podman podman-launcher docker lilipod; do
+    command -v "$c" >/dev/null && { MANAGER=$c; break; }
+  done
+fi
+[ -n "$MANAGER" ] || { echo "no container manager -> omarchy pkg add podman"; exit 1; }
 
 mkdir -p "$KHOME"
 
@@ -48,8 +56,8 @@ except Exception:
 best = max(m, key=lambda d: d.get("height", 0), default=None)
 print(2 if best and (best.get("scale", 1) >= 1.5 or best.get("height", 0) >= 1600) else 1)' 2>/dev/null) || UI_SCALE=1
 fi
-echo "==> [1/3] building $IMAGE (metapackage: $META, uiScale: $UI_SCALE) -- this is the long part"
-podman build -t "$IMAGE" -f "$DIR/Containerfile" \
+echo "==> [1/3] building $IMAGE with $MANAGER (metapackage: $META, uiScale: $UI_SCALE) -- this is the long part"
+"$MANAGER" build -t "$IMAGE" -f "$DIR/Containerfile" \
   --build-arg "KALI_UI_SCALE=$UI_SCALE" --build-arg "KALI_METAPACKAGE=$META" "$DIR"
 
 echo "==> [2/3] creating rootless distrobox '$NAME' (isolated home: $KHOME)"

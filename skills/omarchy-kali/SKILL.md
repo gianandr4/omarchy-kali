@@ -180,6 +180,20 @@ the host's menu file. `distrobox-host-exec` cannot bridge this — it needs
 `host-spawn`, which wants the Flatpak D-Bus portal. Use
 `kali-update --install <pkgs>` from the host instead of entering the container.
 
+## Which container manager is in use
+
+distrobox supports podman, docker and lilipod and autodetects between them
+(`distrobox-create:517-528`). Everything here follows the same precedence:
+`DBX_CONTAINER_MANAGER`, then podman, podman-launcher, docker, lilipod.
+
+If the whole Kali tree is **missing from the menu** on a machine that otherwise
+looks fine, check this first — the rows' `when` guard runs a container-manager
+command, and an assumption of podman makes the tree silently invisible on a
+docker-based install. `kali-menu doctor --json` reports `container_manager`.
+
+Note `podman container exists` is podman-only; `container inspect` is the
+portable form and is what this uses.
+
 ## Which container is in use
 
 Precedence: `KALI_CONTAINER` in the environment, then
