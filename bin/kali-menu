@@ -42,6 +42,13 @@ CONTAINER_FILE = Path(
     os.environ.get("XDG_STATE_HOME", str(Path.home() / ".local" / "state"))
 ) / "omarchy-kali" / "container"
 
+# Whether kali-gui forces a dark GTK theme. Read directly by kali-gui (a bash
+# script), so kept as a plain "dark"/"light" text file rather than folded into
+# some larger config format.
+DARK_FILE = Path(
+    os.environ.get("XDG_STATE_HOME", str(Path.home() / ".local" / "state"))
+) / "omarchy-kali" / "gui-theme"
+
 
 # distrobox supports podman, docker and lilipod and autodetects between them
 # (distrobox-create:517-528). Hardcoding podman means the menu silently never
@@ -685,6 +692,25 @@ def build_rows(payload: dict, include_missing: bool = False) -> tuple[list[str],
                 ),
             })
 
+    add(f"{ROOT_ID}.settings.theme", {
+        "icon": ICON_CATEGORY,
+        "label": "Dark mode",
+        "description": "Force a dark GTK theme in kali-gui launches",
+    })
+    for mode, label in (("dark", "On"), ("light", "Off")):
+        add(f"{ROOT_ID}.settings.theme.{mode}", {
+            "icon": ICON_TERMINAL,
+            "label": label,
+            "description": "Force GTK_THEME=Adwaita:dark for kali-gui launches"
+                           if mode == "dark" else "Leave kali-gui's theme unset",
+            "action": f"{KALI_MENU} theme {mode}",
+            # Off is the default: no file yet reads as "light".
+            "checked": (
+                f'[ "$(cat {shlex.quote(str(DARK_FILE))} 2>/dev/null || echo light)" '
+                f'= {mode} ]'
+            ),
+        })
+
     return ([jsonc_row(row_id, fields) for row_id, fields in rows],
             {"missing": len(skipped), "needs_systemd": len(skipped_svc),
              "needs_polkit": len(skipped_pk), "booted": booted})
@@ -887,6 +913,17 @@ def cmd_use(args) -> None:
     cmd_sync(args)
 
 
+def cmd_theme(args) -> None:
+    """Persist whether kali-gui forces a dark GTK theme.
+
+    No re-sync needed: the Settings row reads this file live via `checked`,
+    and kali-gui reads it fresh on every launch.
+    """
+    DARK_FILE.parent.mkdir(parents=True, exist_ok=True)
+    DARK_FILE.write_text(args.mode + "\n", encoding="utf-8")
+    print(f"gui theme set to {args.mode}")
+
+
 def cmd_skill(args) -> None:
     """Install the troubleshooting skill for Claude Code.
 
@@ -1005,6 +1042,10 @@ def main() -> None:
     p_use = sub.add_parser("use", help="switch container and rebuild the menu")
     p_use.add_argument("container", help="distrobox container name")
     p_use.set_defaults(func=cmd_use, dry_run=False, include_missing=False, json=False)
+
+    p_theme = sub.add_parser("theme", help="force a dark GTK theme in kali-gui launches")
+    p_theme.add_argument("mode", choices=("dark", "light"))
+    p_theme.set_defaults(func=cmd_theme, dry_run=False, include_missing=False, json=False)
 
     p_doc = sub.add_parser("doctor", help="check the install and report what is wrong")
     p_doc.add_argument("--json", action="store_true",

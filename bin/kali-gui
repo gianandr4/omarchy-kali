@@ -35,6 +35,19 @@ CONTAINER="$(kali_container)"
 # real session the user ended, and is none of our business.
 STARTUP_GRACE=10
 
+# Off by default -- toggled from Kali > Settings > Dark mode (`kali-menu theme`),
+# which writes this same file. Only GTK apps honour it directly; Qt apps pick it
+# up too because QT_QPA_PLATFORMTHEME=gtk3 is already inherited from the host
+# session. Swing apps (Burp, Ghidra, ZAP) ignore it -- they keep their own theme
+# setting, toggled once inside the app.
+kali_gui_theme() {
+  local f="${XDG_STATE_HOME:-$HOME/.local/state}/omarchy-kali/gui-theme"
+  [ -s "$f" ] && head -n1 "$f" | tr -d '[:space:]' || printf 'light'
+}
+
+GTK_THEME_ENV=
+[ "$(kali_gui_theme)" = dark ] && GTK_THEME_ENV="GTK_THEME=Adwaita:dark"
+
 if [[ $# -eq 0 ]]; then
   echo "usage: kali-gui <command> [args...]" >&2
   exit 1
@@ -47,7 +60,7 @@ launch() {
   log=$(mktemp "/tmp/kali-gui-${app##*/}.XXXXXX.log")
 
   local start=$SECONDS
-  uwsm-app -- distrobox enter "$CONTAINER" -- "$@" >"$log" 2>&1
+  uwsm-app -- distrobox enter "$CONTAINER" -- env $GTK_THEME_ENV "$@" >"$log" 2>&1
   status=$?
 
   if (( status != 0 && SECONDS - start < STARTUP_GRACE )); then
@@ -62,6 +75,6 @@ launch() {
 }
 
 # setsid so the app outlives the menu process that invoked us.
-setsid bash -c "$(declare -f launch); app=$(printf %q "$app"); CONTAINER=$(printf %q "$CONTAINER"); STARTUP_GRACE=$STARTUP_GRACE; launch $(printf '%q ' "$@")" >/dev/null 2>&1 &
+setsid bash -c "$(declare -f launch); app=$(printf %q "$app"); CONTAINER=$(printf %q "$CONTAINER"); STARTUP_GRACE=$STARTUP_GRACE; GTK_THEME_ENV=$(printf %q "$GTK_THEME_ENV"); launch $(printf '%q ' "$@")" >/dev/null 2>&1 &
 
 disown
