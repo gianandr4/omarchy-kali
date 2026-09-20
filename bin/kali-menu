@@ -457,10 +457,10 @@ def run_extractor() -> dict:
 # install may have pkexec GUIs that really do need root. Extend it without
 # editing this file:
 #
-#   KALI_NEEDS_ROOT=fern-wifi-cracker,someothertool kali-menu sync
+#   KALI_NEEDS_ROOT=fern-wifi-cracker,legion,someothertool kali-menu sync
 _NEEDS_ROOT = {
     t.strip() for t in
-    os.environ.get("KALI_NEEDS_ROOT", "fern-wifi-cracker").split(",")
+    os.environ.get("KALI_NEEDS_ROOT", "fern-wifi-cracker,legion").split(",")
     if t.strip()
 }
 
@@ -488,8 +488,10 @@ def action_for(entry: dict) -> str:
 
     if argv[0] == "pkexec" and argv[1:] and argv[1] in _NEEDS_ROOT:
         # Genuinely needs root AND tolerates it. fern-wifi-cracker writes under
-        # /usr/share and dies with PermissionError as the user; it is Qt, so it
-        # is unaffected by the GTK problem below.
+        # /usr/share and dies with PermissionError as the user; legion checks
+        # os.getuid() itself and refuses to start ("Legion must run as root for
+        # raw socket access"). Both are Qt, so both are unaffected by the GTK
+        # problem below.
         return f"{KALI_GUI} sudo -E " + " ".join(shlex.quote(a) for a in argv[1:])
 
     if argv[0] == "pkexec":

@@ -258,8 +258,10 @@ debconf would have: creates the group, adds you to it, and gives `dumpcap`
 
 **`pkexec` cannot work in the container** — there is no polkit agent, so it hangs
 on a prompt nobody can answer. Kali's `pkexec` launchers are rewritten to run as
-you. The one exception is `fern-wifi-cracker`, which writes under `/usr/share` and
-genuinely needs root; it is Qt, so it tolerates it.
+you. The exceptions are `fern-wifi-cracker`, which writes under `/usr/share` and
+genuinely needs root, and `legion`, which checks `os.getuid()` itself and refuses
+to start without it ("Legion must run as root for raw socket access"). Both are
+Qt, so both tolerate it.
 
 **distrobox's init creates `~/.config` and friends as root**, which lands on the
 host as an unwritable uid. theHarvester, wfuzz, hashcat and scapy all die with
