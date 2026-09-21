@@ -9,6 +9,10 @@ is declarative, it hot-reloads the moment you save, and the whole system is
 readable if you go looking. This plugin is a love letter to that: ~440 rows of
 Kali, generated, filtered, and dropped into the menu you already use.
 
+<p align="center">
+  <img src="docs/menu.png" alt="The Kali submenu open in the Omarchy menu" width="330">
+</p>
+
 ```
 Kali
 ├── Reconnaissance
