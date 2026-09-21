@@ -124,10 +124,13 @@ ROOT_ID = "kali"
 # Explicit codepoints: these are Nerd Font private-use glyphs, and a literal
 # paste of one is too easy to lose in an editor or a copy. All four are present
 # in the Nerd Fonts Omarchy ships (checked with `fc-list :charset=<cp>`).
+# Presence is not enough -- verify what a codepoint actually draws. F01AF is
+# present in the font and renders as a rupee sign, not a monitor; Nerd Fonts
+# v3 remapped the Material Design range.
 ICON_ROOT = "\uf327"          # nf-linux-kali, the dragon
 ICON_CATEGORY = "\U000f024b"  # nf-md-folder
 ICON_TERMINAL = "\uf489"      # nf-oct-terminal
-ICON_GUI = "\U000f01af"       # nf-md-monitor
+ICON_GUI = "\U000f0379"       # nf-md-monitor
 
 # The extractor runs *inside* the container, where the kali-menu files live.
 EXTRACTOR = r'''

@@ -10,7 +10,13 @@ readable if you go looking. This plugin is a love letter to that: ~440 rows of
 Kali, generated, filtered, and dropped into the menu you already use.
 
 <p align="center">
-  <img src="docs/menu.png" alt="The Kali submenu open in the Omarchy menu" width="330">
+  <img src="docs/menu.png" alt="The Kali submenu open in the Omarchy menu" width="300">
+  <img src="docs/menu-tools.png" alt="The Reconnaissance submenu, listing tools" width="300">
+</p>
+
+<p align="center">
+  <em>Kali's own category tree, and the tools inside it. A monitor icon marks a
+  GUI app, a prompt icon a terminal tool.</em>
 </p>
 
 ```
@@ -150,6 +156,10 @@ outside that block is preserved, and a timestamped backup is kept each run.
 
 `Kali → Settings → Container` lists every distrobox on the machine and ticks the
 one in use. Picking another switches to it and rebuilds the menu.
+
+<p align="center">
+  <img src="docs/menu-container.png" alt="The container switcher, with the active container ticked" width="380">
+</p>
 
 The rebuild is not optional: rows are filtered by what is installed in the
 container they were generated from, so pointing at a different one without
